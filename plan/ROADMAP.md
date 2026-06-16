@@ -46,6 +46,25 @@ user's own test videos.
 
 ## Next up
 
+> **STATUS 2026-06-16 (pivot + pause).** Step 3 changed direction: the preset
+> model (R13-P1/P2) is **PARKED** in favour of **Ableton-style Racks** (was
+> backlog R2-P4). A Rack = a named container over a subset of the device chain +
+> up to 8 automatable macro knobs that own their mapped params; it replaces the
+> single global macro quartet, and is saveable to a library + droppable onto any
+> project. **v1 = framework + build-your-own** (curated racks, re-homing looks,
+> and waveform recipes all deferred). The old preset/look idea is reframed as a
+> far-future **"Templates"** concept (a bundle of *specific racks + colour grade/
+> effects*) — not scheduled. Artifacts written this session:
+> - Spec: [docs/superpowers/specs/2026-06-16-racks-design.md](../docs/superpowers/specs/2026-06-16-racks-design.md) (approved)
+> - Plan: [docs/superpowers/plans/2026-06-16-racks-v1.md](../docs/superpowers/plans/2026-06-16-racks-v1.md) (5 phases, ~22 TDD tasks)
+> - Also banked, ready to plan: [R16-P0 detection-accuracy spec](../docs/superpowers/specs/2026-06-16-r16p0-detection-accuracy-design.md).
+>
+> **Repo is now under git** (`git init`; work branch **`feat/racks-v1`**;
+> `.claude/` git-ignored with a local test/git permission allowlist).
+> **Implementation is PAUSED at a clean baseline** — a first subagent run was
+> reverted (it derailed on permission-prompt thrash), the allowlist now fixes
+> that friction. Resume = re-dispatch the Phase 1 implementer per the plan.
+
 **Working sequence (agreed 2026-06-16)** — reordered around the product-eval
 feedback: clarity first, then the big architecture on a guarded base. The
 detailed round write-ups below keep their original numbers; **this list is the
@@ -56,10 +75,12 @@ authority on _order_** (Round 11 and Round 13 are each split across two steps).
    2026-06-16** (all four suites + check_schema pass). Mix rename, Soft-Clip
    Highlights, Simple toggle dropped, header/timeline tidy, *and* the pulled-
    forward accessibility floor shipped together as one frontend-hygiene pass.
-3. **R13-P1/P2 — preset model + "trap" fix** (pulled forward out of Round 13):
-   one starting-point concept, a real "Default / clean start" entry, undoable
-   apply. Answers the preset/project/snapshot confusion *now*; no dependency on
-   the big architecture.
+3. ~~**R13-P1/P2 — preset model + "trap" fix**~~ — **PARKED 2026-06-16**,
+   superseded by **Racks v1** (see STATUS block above). Spec + plan written;
+   implementation paused at baseline on `feat/racks-v1`. The preset/look idea
+   moves to the far-future "Templates" concept. *(Original intent: one
+   starting-point concept, a real "Default / clean start" entry, undoable apply —
+   the undoable-apply + chain/macro undo work survives inside the Racks plan.)*
 4. **R11-P3 — golden-frame visual-regression test** (pulled ahead of the token
    refactor): the safety net that guards every later rendering change.
 5. **R11-P1/P2 (design tokens + CSS refactor) + R11-P5/P6 (frontend design eval:
@@ -473,10 +494,16 @@ detection-accuracy slice can ship ahead of the map UI.
   projector flicker, starburst; then pixel stretch, echo/slit-scan ring
   buffer, texture overlays.
 
-**Racks**
-- R2-P4 — generative rack library: recipe framework + ~5 library racks +
-  Racks UI (cheaper now that generators are named devices + axis-tagged).
+**Racks** — **now the active step (pivot 2026-06-16); see STATUS block in "Next up".**
+- **Racks v1 (build-your-own)** — the framework half of R2-P4, pulled forward to
+  replace the macro quartet. Spec + plan written; paused at baseline on
+  `feat/racks-v1`. Ableton-style: named container over a chain subset + up to 8
+  automatable macro knobs; saveable library; `/api/racks`. Deferred to follow-ons:
+- R2-P4 (rest) — curated/library racks + waveform **recipe framework** (drafts
+  automation from the song) — design after v1 is used.
 - R4-P5 — "Playground" pack + generator-heavy racks (rides R2-P4).
+- "Templates" (far future) — a bundle of *specific racks + colour grade/effects*;
+  the reframed home for the parked preset/look idea.
 
 **UI polish** (deferred from R10)
 - Dynamic coachmark guide sequence (the start callout is static today).
