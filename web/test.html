@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<!-- Dev smoke-test harness (not part of the app UI).
+
+     Loaded headlessly by tests/smoke_browser.py. Boots the real app in an
+     iframe, renders frames through the actual WebGL2 pipeline, runs a tiny
+     real export through the WebSocket, then POSTs a report to /api/presets
+     under the name "smoke-result" so the test runner can read it from disk. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>running</title></head>
+<body style="background:#111;color:#ddd;font:13px monospace;white-space:pre-wrap">
+<iframe id="appFrame" src="/" style="width:1280px;height:800px;border:1px solid #444"></iframe>
+<div id="log"></div>
+<script>
+// Dead-man switch: a parse error in the module below would otherwise be a
+// silent timeout — post whatever we know before the runner's deadline.
+window.__earlyErrors = [];
+window.addEventListener('error', (e) => {
+  window.__earlyErrors.push(
+    `${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`);
+});
+window.__postedReport = false;
+setTimeout(() => {
+  if (window.__postedReport) return;
+  fetch('/api/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'smoke-result', params: {
+      report: ['FAIL dead-man: '
+        + (window.__earlyErrors.join(' | ') || 'hang (no JS error captured)')],
+      failed: true,
+    } }),
+  });
+}, 100000);
+</script>
+<script type="module">
+const report = { steps: [], failed: false };
+const log = (line) => {
+  report.steps.push(line);
+  document.getElementById('log').textContent = report.steps.join('\n');
+};
+const step = (name, ok, extra = '') => {
+  if (!ok) report.failed = true;
+  log(`${ok ? 'OK  ' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`);
+};
+
+async function post(name) {
+  window.__postedReport = true;
+  await fetch('/api/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, params: { report: report.steps, failed: report.failed } }),
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function main() {
+  // 1 — the real app boots in the iframe (catches module/wiring errors)
+  await new Promise((r) => {
+    const f = document.getElementById('appFrame');
+    if (f.contentDocument && f.contentDocument.readyState === 'complete') r();
+    else f.addEventListener('load', r);
+  });
+  await sleep(2000);
+  const idoc = document.getElementById('appFrame').contentDocument;
+  const { STYLE_PACKS } = await import('./js/packs.js');
+  step('look packs available', STYLE_PACKS.length >= 8, `${STYLE_PACKS.length} looks`);
+  step('app boots: device chain built',
+    idoc.querySelectorAll('#paramPanels .group').length >= 8,
+    `${idoc.querySelectorAll('#paramPanels .group').length} devices in chain`);
+  step('app boots: add-device browser present',
+    !!idoc.querySelector('#paramPanels .add-device-btn'));
+  // [hidden] must beat author display: (mod strips start collapsed)
+  const strips = [...idoc.querySelectorAll('.mod-strip')];
+  step('mod strips start collapsed ([hidden] enforced)',
+    strips.length > 0
+      && strips.every((s) => idoc.defaultView.getComputedStyle(s).display === 'none'),
+    `${strips.length} strips`);
+  step('modulation editor + ergonomics built',
+    idoc.querySelectorAll('.mod-strip .mod-select').length > 0
+      && idoc.querySelectorAll('.mod-strip .mod-meter').length > 0
+      && !!idoc.querySelector('.dev-search')
+      && !!idoc.querySelector('.device-reset'),
+    `${idoc.querySelectorAll('.mod-strip .mod-select').length} editors`);
+  step('app boots: aspect buttons', idoc.querySelectorAll('#aspectSeg button').length === 3);
+  step('R6 UI present (media card / swap / export pill+hide)',
+    !!idoc.getElementById('mediaCard') && !!idoc.getElementById('swapImageBtn')
+      && !!idoc.getElementById('exportPill') && !!idoc.getElementById('exportHide'));
+  step('R4/R5 UI present (canvas / looks / device chain always visible)',
+    !!idoc.getElementById('canvasFill') && !!idoc.getElementById('lookBrowser')
+      && !idoc.getElementById('viewToggle')
+      && !!idoc.querySelector('#paramPanels [data-key="canvasOn"]'));
+  step('R9/R10 UI present (Library / signal tiers / spectrum)',
+    !!idoc.getElementById('librarySection')
+      && idoc.querySelectorAll('#signalPanel .signal-tier').length >= 2
+      && !!idoc.getElementById('spectrumCanvas'));
+  step('R10 input model (Audio + Visual source, guided preview, no dead controls)',
+    !!idoc.getElementById('canvasFill') && !!idoc.getElementById('audioInput')
+      && !!idoc.getElementById('imageInput') && !!idoc.getElementById('startCallout')
+      && !idoc.querySelector('#dropHint button')
+      && !!idoc.getElementById('leftResize') && !!idoc.getElementById('sourcePreview'));
+  step('R10 export summary + signal + shortcuts present',
+    !!idoc.getElementById('exportSummary')
+      && !!idoc.getElementById('signalBtn')
+      && !!idoc.getElementById('shortcutsBtn'));
+  step('auto colour-grade: Auto button on the Grade device header',
+    !!idoc.querySelector('#paramPanels .device-auto'));
+  // R10-4 fix: the dimmed-off state must clear when a device is switched on
+  const canvasSum = idoc.querySelector('#paramPanels summary[data-key="canvasOn"]');
+  const canvasCard = canvasSum && canvasSum.closest('details.group');
+  const canvasCb = canvasSum && canvasSum.querySelector('input[type="checkbox"]');
+  let offClears = false;
+  if (canvasCard && canvasCb) {
+    const wasOff = canvasCard.classList.contains('device-off');
+    canvasCb.checked = true; canvasCb.dispatchEvent(new Event('change'));
+    offClears = wasOff && !canvasCard.classList.contains('device-off');
+    canvasCb.checked = false; canvasCb.dispatchEvent(new Event('change')); // restore
+  }
+  step('device dimmed-off state clears when switched on', offClears);
+  step('R9-3 macro empty state with no project loaded',
+    !!idoc.querySelector('#macroRack .macro-empty')
+      && idoc.querySelectorAll('#macroRack .macro-cell').length === 0);
+  step('R7 UI present (Style dropdown gone / focus / snapshots / master)',
+    !idoc.getElementById('packSelect')
+      && !!idoc.querySelector('.focus-toggle')
+      && !!idoc.getElementById('snapshotSave')
+      && !!idoc.querySelector('#paramPanels [data-key="sharpOn"]')
+      && !!idoc.querySelector('#paramPanels [data-key="outputOn"]'));
+  step('R8: A/B fully removed from UI',
+    !idoc.getElementById('abBtn') && !idoc.getElementById('abCopy'));
+  step('R8: Signal panel present + Audio Response out of device stack',
+    !!idoc.getElementById('signalBtn') && !!idoc.getElementById('spectrumCanvas')
+      && !idoc.querySelector('#paramPanels [data-key="audReact"]'));
+  step('R8: Master section has a distinct divider',
+    !!idoc.querySelector('.master-divider') && !!idoc.querySelector('details.group.master'));
+  step('app boots: no window error', !idoc.title.startsWith('ERR'), idoc.title);
+
+  // 2 — render frames through the real pipeline
+  const { Renderer } = await import('./js/renderer.js');
+  const { FeatureBank } = await import('./js/features.js');
+  const { defaultParams } = await import('./js/params.js');
+  const { getPack } = await import('./js/packs.js');
+  const { runExport } = await import('./js/export.js');
+
+  const projects = await fetch('/api/projects').then((r) => r.json());
+  step('project available', projects.length > 0);
+  // Prefer the synthetic test fixture (test.png) for pixel-level assertions.
+  const fixture = projects.find((p) => p.imageName === 'test.png') || projects[0];
+  const pid = fixture.id;
+
+  const [imgBlob, depthBlob, analysis] = await Promise.all([
+    fetch(`/api/project/${pid}/image`).then((r) => r.blob()),
+    fetch(`/api/project/${pid}/depth`).then((r) => r.blob()),
+    fetch(`/api/project/${pid}/analysis`).then((r) => r.json()),
+  ]);
+  const canvas = document.createElement('canvas');
+  canvas.width = 384; canvas.height = 216;
+  const renderer = new Renderer(canvas);
+  renderer.setImage(await createImageBitmap(imgBlob, { imageOrientation: 'flipY' }));
+  renderer.setDepth(await createImageBitmap(depthBlob, { imageOrientation: 'flipY' }));
+  renderer.setSize(384, 216);
+  step('renderer + shaders compiled in browser', true);
+
+  const bank = new FeatureBank(analysis);
+  bank.setResponse({});
+  const params = { ...defaultParams(), ...getPack('cinematic').overrides };
+  const reframe = { x: 0, y: 0, scale: 1 };
+  for (let i = 0; i < 30; i++) {
+    const t = i / 30;
+    renderer.render(t, 1 / 30, bank.sample(t), params, reframe, { toTexture: true });
+  }
+  const px = renderer.readPixels();
+  let sum = 0, sum2 = 0, n = 0;
+  for (let i = 0; i < px.length; i += 401) { sum += px[i]; sum2 += px[i] * px[i]; n++; }
+  const mean = sum / n;
+  const sd = Math.sqrt(Math.max(sum2 / n - mean * mean, 0));
+  step('rendered frames are non-trivial', mean > 4 && sd > 4,
+    `mean=${mean.toFixed(1)} sd=${sd.toFixed(1)}`);
+
+  // orientation: the fixture image is redder at its bottom; readPixels row 0
+  // is the frame's bottom row, so bottom rows must out-red the top rows.
+  const W = 384, H = 216, rowsN = 30;
+  let redBottom = 0, redTop = 0;
+  for (let y = 0; y < rowsN; y++) {
+    for (let x = 0; x < W; x += 7) {
+      redBottom += px[(y * W + x) * 4];
+      redTop += px[((H - 1 - y) * W + x) * 4];
+    }
+  }
+  step('orientation correct (image not flipped)', redBottom > redTop * 1.15,
+    `bottom=${Math.round(redBottom / 1000)}k top=${Math.round(redTop / 1000)}k`);
+
+  // 3 — feature sanity
+  const f = bank.sample(1.0);
+  step('features sampled', [f.low, f.mid, f.high, f.rms, f.onset].every((v) => v >= 0 && v <= 1.5),
+    JSON.stringify({ low: +f.low.toFixed(2), high: +f.high.toFixed(2), beats: +f.beats.toFixed(1) }));
+
+  // 3b — device Intensity faders: intensity 0 must equal the device being off
+  const { paramIndex } = await import('./js/params.js');
+  const { AutomationSet } = await import('./js/automation.js');
+  const captureFrame = (p) => {
+    renderer.resetFeedback();
+    renderer.render(0.5, 1 / 30, bank.sample(0.5), p, reframe, { toTexture: true });
+    return renderer.readPixels().slice();
+  };
+  const maxDiff = (a, b) => {
+    let d = 0;
+    for (let i = 0; i < a.length; i += 97) d = Math.max(d, Math.abs(a[i] - b[i]));
+    return d;
+  };
+  const base = defaultParams();
+  const warpDiff = maxDiff(
+    captureFrame({ ...base, warpOn: false }),
+    captureFrame({ ...base, warpOn: true, warpAmount: 0.6, warpMix: 0 }),
+  );
+  step('intensity 0 == device absent (warp)', warpDiff <= 1, `maxDiff=${warpDiff}`);
+  const kalDiff = maxDiff(
+    captureFrame({ ...base, kaleidoOn: false }),
+    captureFrame({ ...base, kaleidoOn: true, kaleidoMix: 0 }),
+  );
+  step('intensity 0 == device absent (kaleido)', kalDiff <= 1, `maxDiff=${kalDiff}`);
+
+  // 3c — Auto colour-grade derivation (pure; the GL sampling half lives in
+  // main.js). Synthetic histograms exercise the corrections + the null guard.
+  const { autoGradeFromStats } = await import('./js/params.js');
+  const mkHist = (bins) => {
+    const h = new Float32Array(256);
+    for (const [bin, w] of bins) h[bin] += w;
+    return h;
+  };
+  const darkG = autoGradeFromStats({
+    hist: mkHist([[30, 1000]]), meanR: 0.12, meanG: 0.12, meanB: 0.12, meanSat: 0.3,
+  });
+  step('auto-grade: dark image raises exposure',
+    !!darkG && darkG.exposure > 0.1, `exposure=${darkG && darkG.exposure}`);
+  const flatG = autoGradeFromStats({
+    hist: mkHist([[120, 500], [135, 500]]), meanR: 0.5, meanG: 0.5, meanB: 0.5, meanSat: 0.3,
+  });
+  step('auto-grade: flat image raises contrast',
+    !!flatG && flatG.contrast > 1.04, `contrast=${flatG && flatG.contrast}`);
+  const warmG = autoGradeFromStats({
+    hist: mkHist([[128, 1000]]), meanR: 0.6, meanG: 0.45, meanB: 0.3, meanSat: 0.3,
+  });
+  step('auto-grade: warm cast cools temperature',
+    !!warmG && warmG.temperature < 0, `temp=${warmG && warmG.temperature}`);
+  step('auto-grade: empty histogram returns null',
+    autoGradeFromStats({ hist: new Float32Array(256), meanR: 0, meanG: 0, meanB: 0, meanSat: 0 }) === null);
+
+  // 3d — base-value edits (sliders / reset / Auto) are now undoable: params
+  // ride in the history snapshot, committed at the slider-release boundary.
+  const iwin = idoc.defaultView;
+  const expRow = idoc.querySelector('#paramPanels [data-key="exposure"]');
+  const expSlider = expRow && expRow.querySelector('input[type=range]');
+  let undoOK = false;
+  let diag = 'no exposure slider';
+  if (expSlider) {
+    const setExp = (val) => {            // a full slider gesture (input + release)
+      expSlider.value = String(val);
+      expSlider.dispatchEvent(new iwin.Event('input', { bubbles: true }));
+      expSlider.dispatchEvent(new iwin.Event('change', { bubbles: true }));
+    };
+    setExp(0.3);                          // commit A
+    setExp(0.6);                          // commit B
+    const edited = expSlider.value;
+    idoc.body.dispatchEvent(new iwin.KeyboardEvent('keydown', { code: 'KeyZ', ctrlKey: true, bubbles: true }));
+    const undone = expSlider.value;       // expect the value from commit A
+    undoOK = edited === '0.6' && undone === '0.3';
+    diag = `edited=${edited} undone=${undone}`;
+  }
+  step('base-value slider edit is undoable (Ctrl+Z)', undoOK, diag);
+
+  // 3b' — R5-P1b: Mix 0 must equal device-absent for EVERY device.
+  const { PARAM_GROUPS } = await import('./js/params.js');
+  const toggled = PARAM_GROUPS.filter((g) => g.toggle);
+  const offenders = [];
+  for (const g of toggled) {
+    const d = maxDiff(
+      captureFrame({ ...base, [g.toggle]: false }),
+      captureFrame({ ...base, [g.toggle]: true, [g.params[0].key]: 0 }),
+    );
+    if (d > 1) offenders.push(`${g.id}=${d}`);
+  }
+  step(`Mix 0 == device absent (all ${toggled.length} devices)`,
+    offenders.length === 0, offenders.length ? offenders.join(' ') : 'bit-exact');
+
+  // 3b-canvas — R4-1: Canvas device paints a flat colour (white ≫ black).
+  const meanR = (px) => { let s = 0, n = 0; for (let i = 0; i < px.length; i += 400) { s += px[i]; n++; } return s / n; };
+  const cWhite = meanR(captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasSat: 0, canvasLight: 1 }));
+  const cBlack = meanR(captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasSat: 0, canvasLight: 0 }));
+  step('canvas device drives a flat colour (white >> black)', cWhite > cBlack + 80,
+    `whiteR=${cWhite.toFixed(0)} blackR=${cBlack.toFixed(0)}`);
+  // R10-6: gradient fill differs from flat
+  const cGrad = captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasMode: 'gradient', canvasSat: 0, canvasLight: 0, canvasSat2: 0, canvasLight2: 1 });
+  const cFlat = captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasMode: 'flat', canvasSat: 0, canvasLight: 0 });
+  step('canvas gradient fill differs from flat', maxDiff(cGrad, cFlat) > 8,
+    `diff=${maxDiff(cGrad, cFlat)}`);
+
+  // 3b-master — R7-1: Sharpen, Vibrance, Output soft-clip.
+  const sharpD = maxDiff(captureFrame(base),
+    captureFrame({ ...base, sharpOn: true, sharpMix: 1, sharpRadius: 1.5 }));
+  step('master Sharpen changes the image', sharpD > 1, `diff=${sharpD}`);
+  const vibD = maxDiff(captureFrame(base), captureFrame({ ...base, vibrance: 0.9 }));
+  step('master grade Vibrance changes colour', vibD > 1, `diff=${vibD}`);
+  const oOff = meanR(captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasLight: 1 }));
+  const oOn = meanR(captureFrame({ ...base, canvasOn: true, canvasMix: 1, canvasLight: 1,
+    outputOn: true, outputMix: 1, outputCeiling: 0.6 }));
+  step('output soft-clip rolls off highlights', oOn < oOff - 8,
+    `whiteR ${oOff.toFixed(0)} -> ${oOn.toFixed(0)}`);
+
+  // 3b-creative — R8-5: Colour wash (split-tone) + Clarity (local contrast).
+  const washD = maxDiff(captureFrame(base),
+    captureFrame({ ...base, washOn: true, washMix: 1, washShadowHue: 200, washHighHue: 38 }));
+  step('creative Colour wash tints the image', washD > 1, `diff=${washD}`);
+  const clarD = maxDiff(captureFrame(base),
+    captureFrame({ ...base, clarityOn: true, clarityMix: 1, clarityRadius: 5 }));
+  step('creative Clarity changes the image', clarD > 1, `diff=${clarD}`);
+
+  // 3b-fade — R7-2: the Mix curve eases low values but keeps endpoints.
+  const fogOff = captureFrame({ ...base, fogOn: false });
+  const fogLin = captureFrame({ ...base, audSmoothness: 0, fogOn: true, fogMix: 0.5, fogDensity: 0.9 });
+  const fogCur = captureFrame({ ...base, audSmoothness: 0.6, fogOn: true, fogMix: 0.5, fogDensity: 0.9 });
+  step('fade curve eases low Mix (gentler than linear)',
+    maxDiff(fogOff, fogCur) > 0 && maxDiff(fogOff, fogCur) < maxDiff(fogOff, fogLin),
+    `curved=${maxDiff(fogOff, fogCur)} linear=${maxDiff(fogOff, fogLin)}`);
+  const fullLin = captureFrame({ ...base, audSmoothness: 0, fogOn: true, fogMix: 1, fogDensity: 0.9 });
+  const fullCur = captureFrame({ ...base, audSmoothness: 0.6, fogOn: true, fogMix: 1, fogDensity: 0.9 });
+  step('fade curve leaves fully-wet (mix 1) exact', maxDiff(fullLin, fullCur) === 0,
+    `maxDiff=${maxDiff(fullLin, fullCur)}`);
+
+  // 3b'' — R4: generators render, deterministically, and 0 == absent is
+  // covered by the matrix above (named generator devices are toggled).
+  const julia = { ...base, fractalOn: true, fractalMix: 1, fractalKind: 'julia', fractalSize: 1.2 };
+  const genOff = captureFrame(base);
+  const genOn = captureFrame(julia);
+  const genAgain = captureFrame(julia);
+  step('generator renders (Julia non-trivial)', maxDiff(genOff, genOn) > 8,
+    `diff=${maxDiff(genOff, genOn)}`);
+  step('generator deterministic', maxDiff(genOn, genAgain) === 0,
+    `maxDiff=${maxDiff(genOn, genAgain)}`);
+  // region mask: count changed samples — a small ellipse must touch far
+  // fewer pixels than the unmasked layer
+  const changed = (a, b) => {
+    let n = 0;
+    for (let i = 0; i < a.length; i += 97) if (Math.abs(a[i] - b[i]) > 1) n++;
+    return n;
+  };
+  const masked = captureFrame({ ...julia, fractalMask: 'ellipse', fractalSize: 0.3, fractalX: 0.2, fractalY: 0.8 });
+  const fullN = changed(genOff, genOn);
+  const maskN = changed(genOff, masked);
+  step('generator region mask confines the layer', maskN > 0 && maskN < fullN * 0.5,
+    `changed: full=${fullN} masked=${maskN}`);
+  // 3b''' — R4-P3b: integrated generators (emerge from the image)
+  const fullJulia = changed(genOff, genOn);
+  const depthGated = captureFrame({ ...julia, fractalDepthGate: 0.15 });
+  const gatedN = changed(genOff, depthGated);
+  step('depth gate hides the layer behind near image content',
+    gatedN < fullJulia * 0.7, `changed: overlay=${fullJulia} gated=${gatedN}`);
+  const inh = captureFrame({ ...julia, fractalInherit: 1 });
+  step('inherit tints the pattern with image colour', maxDiff(genOn, inh) > 2,
+    `diff=${maxDiff(genOn, inh)}`);
+  const disp1 = captureFrame({ ...julia, fractalBlend: 'displace' });
+  const disp2 = captureFrame({ ...julia, fractalBlend: 'displace' });
+  step('displace blend warps the image (and differs from add)',
+    maxDiff(genOff, disp1) > 2 && maxDiff(genOn, disp1) > 2,
+    `vsOff=${maxDiff(genOff, disp1)} vsAdd=${maxDiff(genOn, disp1)}`);
+  step('displace blend is deterministic', maxDiff(disp1, disp2) === 0,
+    `maxDiff=${maxDiff(disp1, disp2)}`);
+  const anchored = captureFrame({ ...julia, fractalAnchor: 'image' });
+  step('image anchor renders (region glued to the photo)',
+    changed(genOff, anchored) > 0, `changed=${changed(genOff, anchored)}`);
+
+  // R4-P6: named generator devices as separate slots — stack two, and the
+  // Kind sub-option changes the output.
+  const shapeRings = captureFrame({ ...base, shapeOn: true, shapeMix: 1, shapeKind: 'rings', shapeSize: 1.0 });
+  const shapeBars = captureFrame({ ...base, shapeOn: true, shapeMix: 1, shapeKind: 'bars', shapeSize: 1.0 });
+  step('Shape Pulse Kind changes the output (rings vs bars)',
+    maxDiff(shapeRings, shapeBars) > 2, `diff=${maxDiff(shapeRings, shapeBars)}`);
+  const stacked = captureFrame({
+    ...base, shapeOn: true, shapeMix: 1, shapeKind: 'bars', shapeX: 0.25,
+    fractalOn: true, fractalMix: 1, fractalKind: 'julia', fractalX: 0.75,
+  });
+  step('two named generators stack (separate slots)',
+    changed(genOff, stacked) > changed(genOff, genOn),
+    `stacked=${changed(genOff, stacked)} single=${changed(genOff, genOn)}`);
+  // R10-6 pattern fill: Noise Flow generator renders full-frame
+  const flowGen = captureFrame({ ...base, flowOn: true, flowMix: 1, flowKind: 'clouds', flowSize: 1.2 });
+  step('Noise Flow generator (pattern fill) renders', maxDiff(genOff, flowGen) > 8,
+    `diff=${maxDiff(genOff, flowGen)}`);
+
+  // R4-P7: four new generator devices each render a non-trivial layer.
+  const tunnelGen = captureFrame({ ...base, tunnelOn: true, tunnelMix: 1, tunnelKind: 'round', tunnelSize: 1.2 });
+  step('Tunnel generator renders', maxDiff(genOff, tunnelGen) > 8, `diff=${maxDiff(genOff, tunnelGen)}`);
+  const starGen = captureFrame({ ...base, starfieldOn: true, starfieldMix: 1, starfieldKind: 'stars', starfieldDetail: 0.9, starfieldSize: 1.2 });
+  step('Starfield generator renders', maxDiff(genOff, starGen) > 8, `diff=${maxDiff(genOff, starGen)}`);
+  const voroGen = captureFrame({ ...base, voronoiOn: true, voronoiMix: 1, voronoiKind: 'cells', voronoiSize: 1.2 });
+  step('Voronoi generator renders', maxDiff(genOff, voroGen) > 8, `diff=${maxDiff(genOff, voroGen)}`);
+  const waveGen = captureFrame({ ...base, waveformOn: true, waveformMix: 1, waveformKind: 'lissajous', waveformSize: 1.2 });
+  step('Waveform generator renders', maxDiff(genOff, waveGen) > 8, `diff=${maxDiff(genOff, waveGen)}`);
+  // Kind sub-option changes the output (Voronoi cells vs edges).
+  const voroEdges = captureFrame({ ...base, voronoiOn: true, voronoiMix: 1, voronoiKind: 'edges', voronoiSize: 1.2 });
+  step('Voronoi Kind changes the output (cells vs edges)',
+    maxDiff(voroGen, voroEdges) > 2, `diff=${maxDiff(voroGen, voroEdges)}`);
+
+  // R4-P7 beat-sync: at full sync the pattern clock is beat-quantised, so the
+  // frame differs from the free-running clock (and stays deterministic).
+  const tunnelFree = captureFrame({ ...base, tunnelOn: true, tunnelMix: 1, tunnelSize: 1.2, tunnelBeatSync: 0 });
+  const tunnelSync = captureFrame({ ...base, tunnelOn: true, tunnelMix: 1, tunnelSize: 1.2, tunnelBeatSync: 1 });
+  const tunnelSync2 = captureFrame({ ...base, tunnelOn: true, tunnelMix: 1, tunnelSize: 1.2, tunnelBeatSync: 1 });
+  step('beat-sync re-clocks the pattern (differs from free clock)',
+    maxDiff(tunnelFree, tunnelSync) > 2, `diff=${maxDiff(tunnelFree, tunnelSync)}`);
+  step('beat-sync render is deterministic', maxDiff(tunnelSync, tunnelSync2) === 0,
+    `maxDiff=${maxDiff(tunnelSync, tunnelSync2)}`);
+
+  // bands16 is sampled at t — scan for a loud moment (t=1.0 can be silent)
+  let bandPeak = 0;
+  for (let tt = 0; tt < Math.min(bank.duration, 10); tt += 0.2) {
+    const bb = bank.sample(tt).bands16;
+    for (let i = 0; i < 16; i++) bandPeak = Math.max(bandPeak, bb[i]);
+  }
+  step('16-band feed for the Spectrum generator',
+    bank.sample(0).bands16 instanceof Float32Array && bandPeak > 0.5,
+    `peak=${bandPeak.toFixed(2)}`);
+
+  // 3c — Device On/Off automates as a stepped bool lane
+  const auto = new AutomationSet(paramIndex());
+  auto.addPoint('warpOn', 0, 0);
+  auto.addPoint('warpOn', 4, 1);
+  const offAt2 = auto.apply(base, 2).warpOn;
+  const onAt5 = auto.apply(base, 5).warpOn;
+  step('bool lane: Device On automates 0/1', offAt2 === false && onAt5 === true,
+    `at2=${offAt2} at5=${onAt5}`);
+
+  // 3c2 — curved segments: quadratic bow + symmetry + serialization roundtrip
+  const autoCurve = new AutomationSet(paramIndex());
+  autoCurve.addPoint('fogDensity', 0, 0);
+  autoCurve.addPoint('fogDensity', 4, 1);
+  autoCurve.setCurve('fogDensity', 0, 0.5);
+  // v(f) = f² + 2m·f(1−f), m = 0.75  =>  v(0.5) = 0.25 + 0.375 = 0.625
+  const vMid = autoCurve.valueAt('fogDensity', 2);
+  step('curved segment bows through the midpoint', Math.abs(vMid - 0.625) < 1e-6,
+    `v(mid)=${vMid}`);
+  // constant curvature: discrete second difference equal on both sides
+  const dd = (b) => autoCurve.valueAt('fogDensity', b + 0.4)
+    - 2 * autoCurve.valueAt('fogDensity', b)
+    + autoCurve.valueAt('fogDensity', b - 0.4);
+  step('curve bend is symmetric (constant curvature)',
+    Math.abs(dd(1.2) - dd(2.8)) < 1e-9, `dd(left)=${dd(1.2).toFixed(6)} dd(right)=${dd(2.8).toFixed(6)}`);
+  const autoRound = new AutomationSet(paramIndex());
+  autoRound.load(JSON.parse(JSON.stringify(autoCurve.toJSON())));
+  step('curvature survives save/load',
+    Math.abs(autoRound.valueAt('fogDensity', 2) - vMid) < 1e-3);
+
+  // 3c2b — movable apex: skewing h shifts the turning point; the curve
+  // passes through the dragged apex (t=0.5 point) exactly.
+  autoCurve.setCurve('fogDensity', 0, 0.5, 0.25);
+  // apex = (0.25 + h/2, 0.25 + k/2) = beats 4×0.375 = 1.5, value 0.625
+  const vApex = autoCurve.valueAt('fogDensity', 1.5);
+  step('skewed apex: curve passes through the dragged point',
+    Math.abs(vApex - 0.625) < 1e-6, `v(1.5)=${vApex}`);
+  autoCurve.setCurve('fogDensity', 0, -0.8, 0.9);
+  let monotone = true;
+  let prev = -1;
+  for (let b = 0; b <= 4.001; b += 0.2) {
+    const v = autoCurve.valueAt('fogDensity', b);
+    if (v < prev - 1e-9) monotone = false;
+    prev = v;
+  }
+  step('skewed curve stays monotone (no overshoot)', monotone);
+  autoCurve.setCurve('fogDensity', 0, 0.5, 0.25);
+  const autoRound2 = new AutomationSet(paramIndex());
+  autoRound2.load(JSON.parse(JSON.stringify(autoCurve.toJSON())));
+  step('apex skew survives save/load',
+    Math.abs(autoRound2.valueAt('fogDensity', 1.5) - 0.625) < 1e-3);
+
+  // 3c2c — R14-P3: copy / paste automation clips (pure, beats-domain)
+  const clipAuto = new AutomationSet(paramIndex());
+  clipAuto.addPoint('fogDensity', 0, 0.2);
+  clipAuto.addPoint('fogDensity', 1, 0.8);
+  clipAuto.addPoint('fogDensity', 2, 0.4);
+  const rangeClip = clipAuto.copyRange('fogDensity', 0, 2);
+  clipAuto.pasteRange('fogDensity', rangeClip, 8); // anchor the clip at beat 8
+  step('copy range then paste reproduces the shape at the new anchor',
+    Math.abs(clipAuto.valueAt('fogDensity', 8) - 0.2) < 1e-6
+      && Math.abs(clipAuto.valueAt('fogDensity', 9) - 0.8) < 1e-6
+      && Math.abs(clipAuto.valueAt('fogDensity', 10) - 0.4) < 1e-6,
+    `@8=${clipAuto.valueAt('fogDensity', 8).toFixed(2)} @9=${clipAuto.valueAt('fogDensity', 9).toFixed(2)}`);
+
+  const ovr = new AutomationSet(paramIndex());
+  ovr.addPoint('fogDensity', 8, 0.0);
+  ovr.addPoint('fogDensity', 9, 0.99);  // inside the paste span — overwritten
+  ovr.addPoint('fogDensity', 12, 0.1);  // outside the span — survives
+  ovr.pasteRange('fogDensity', rangeClip, 8);
+  const ovrPts = ovr.lane('fogDensity').points;
+  const ovrAt9 = ovrPts.find((p) => Math.abs(p.b - 9) < 1e-6);
+  step('paste overwrites the destination span, keeps outside points',
+    ovrAt9 && Math.abs(ovrAt9.v - 0.8) < 1e-6 && ovrPts.some((p) => Math.abs(p.b - 12) < 1e-6),
+    `@9=${ovrAt9 ? ovrAt9.v : 'n/a'} count=${ovrPts.length}`);
+
+  const det1 = new AutomationSet(paramIndex()); det1.pasteRange('fogDensity', rangeClip, 4);
+  const det2 = new AutomationSet(paramIndex()); det2.pasteRange('fogDensity', rangeClip, 4);
+  step('paste is deterministic (identical lane JSON)',
+    JSON.stringify(det1.toJSON()) === JSON.stringify(det2.toJSON()));
+
+  // whole-lane copy onto a smaller-range parameter clamps every value
+  const idx14 = paramIndex();
+  const contKeys = Object.keys(idx14).filter((k) => idx14[k].automatable
+    && idx14[k].type !== 'enum' && idx14[k].type !== 'bool');
+  const bigKey = contKeys.find((k) => idx14[k].max >= 2);
+  const smallKey = contKeys.find((k) => idx14[k].max <= 1 && idx14[k].min >= 0);
+  if (bigKey && smallKey) {
+    const src = new AutomationSet(paramIndex());
+    src.addPoint(bigKey, 0, idx14[bigKey].min);
+    src.addPoint(bigKey, 4, idx14[bigKey].max);   // exceeds smallKey's range
+    src.pasteLane(smallKey, src.copyLane(bigKey));
+    const sp = src.lane(smallKey).points;
+    const inRange = sp.every((p) => p.v <= idx14[smallKey].max + 1e-9 && p.v >= idx14[smallKey].min - 1e-9);
+    const clamped = sp.some((p) => Math.abs(p.v - idx14[smallKey].max) < 1e-6);
+    step('whole-lane paste clamps values to the target range', inRange && clamped,
+      `${bigKey}(max ${idx14[bigKey].max}) -> ${smallKey}(max ${idx14[smallKey].max})`);
+  } else {
+    step('whole-lane paste clamps values to the target range', true, 'skip: no range pair');
+  }
+
+  // deleteRange removes only the points inside the band
+  const delAuto = new AutomationSet(paramIndex());
+  for (let b = 0; b <= 8; b++) delAuto.addPoint('fogDensity', b, 0.5);
+  delAuto.deleteRange('fogDensity', 3, 5);
+  step('deleteRange removes only the in-band points',
+    delAuto.lane('fogDensity').points.every((p) => p.b < 3 - 1e-4 || p.b > 5 + 1e-4)
+      && delAuto.lane('fogDensity').points.length === 6,
+    `remaining=${delAuto.lane('fogDensity').points.length}`);
+
+  // 3c3 — macro rack: mapped params scan their range; bool maps by threshold
+  const { applyMacros, defaultMacros } = await import('./js/params.js');
+  const macros = defaultMacros();
+  macros[0].mappings.push({ key: 'warpAmount', min: 0.1, max: 0.9 });
+  macros[0].mappings.push({ key: 'warpOn', min: 0, max: 1 });
+  const atZero = applyMacros({ ...base, macro1: 0, warpAmount: 0.5, warpOn: true }, macros);
+  const atHalf = applyMacros({ ...base, macro1: 0.75, warpAmount: 0.5, warpOn: false }, macros);
+  step('macro scans mapped range (owns the param)',
+    Math.abs(atZero.warpAmount - 0.1) < 1e-6 && Math.abs(atHalf.warpAmount - 0.7) < 1e-6,
+    `0 -> ${atZero.warpAmount}, 0.75 -> ${atHalf.warpAmount}`);
+  step('macro maps Device On by threshold',
+    atZero.warpOn === false && atHalf.warpOn === true,
+    `0 -> ${atZero.warpOn}, 0.75 -> ${atHalf.warpOn}`);
+  const macroRackEl = idoc.getElementById('macroRack');
+  // R9-3: with no project the rack shows the empty state; cells/quartet/follow
+  // live in the macro rack only once a project is loaded (verified via the
+  // headless macro-logic tests above, which don't need the DOM).
+  step('macro rack present', !!macroRackEl);
+  step('device panel resize handle present', !!idoc.getElementById('rightResize'));
+  step('loop button + export range present',
+    !!idoc.getElementById('loopBtn') && !!idoc.getElementById('exportRange'));
+  // R14: timeline mode toggle + Fit control wired into the lane cluster
+  step('timeline Draw/Move toggle + Fit control present',
+    !!idoc.getElementById('modeMoveBtn') && !!idoc.getElementById('modeDrawBtn')
+      && !!idoc.getElementById('fitBtn'));
+
+  // 3d — per-parameter modulation matrix (pure function + render determinism)
+  const { applyModulation } = await import('./js/features.js');
+  const synth = { low: 0.5, mid: 0, high: 0, rms: 0, onset: 0, beats: 0, beatPhase: 0 };
+  const modded = applyModulation({ ...base, warpAmount: 0.2, 'warpAmount~low': 0.4 }, synth);
+  step('per-param modulation shifts its target', Math.abs(modded.warpAmount - 0.4) < 1e-6,
+    `0.2 + 0.4×0.5×span -> ${modded.warpAmount}`);
+  const negMod = applyModulation({ ...base, vigAmount: 0.5, 'vigAmount~low': -0.4 }, synth);
+  step('bipolar depths duck on energy', Math.abs(negMod.vigAmount - 0.3) < 1e-6,
+    `0.5 - 0.4×0.5×span -> ${negMod.vigAmount}`);
+
+  // 3d2 — modulation thresholds & gate
+  const synthQuiet = { low: 0.3, mid: 0, high: 0, rms: 0, onset: 0, beats: 0, beatPhase: 0 };
+  const synthLoud = { low: 0.8, mid: 0, high: 0, rms: 0, onset: 0, beats: 0, beatPhase: 0 };
+  const pTh = { ...base, warpAmount: 0.2, 'warpAmount~low': 0.5, 'warpAmount~low@th': 0.5 };
+  const below = applyModulation(pTh, synthQuiet).warpAmount;
+  const above = applyModulation(pTh, synthLoud).warpAmount;
+  step('threshold: silent below, re-scaled ramp above',
+    Math.abs(below - 0.2) < 1e-9 && Math.abs(above - 0.5) < 1e-9,
+    `below=${below} above=${above}`);
+  const gated = applyModulation(
+    { ...pTh, 'warpAmount~low@gate': 1 },
+    { ...synthQuiet, low: 0.6 },
+  ).warpAmount;
+  step('gate: full depth once over the threshold',
+    Math.abs(gated - 0.7) < 1e-9, `v=${gated}`);
+
+  // 3d3 — R5: master Reactivity + generated quartet + device contract UI
+  const pReact = { ...base, warpAmount: 0.2, 'warpAmount~low': 0.4 };
+  const reactHalf = applyModulation({ ...pReact, audReact: 0.5 }, synth).warpAmount;
+  const reactOff = applyModulation({ ...pReact, audReact: 0 }, synth).warpAmount;
+  step('master Reactivity scales every modulation depth',
+    Math.abs(reactHalf - 0.3) < 1e-6 && Math.abs(reactOff - 0.2) < 1e-9,
+    `×0.5 -> ${reactHalf}, ×0 -> ${reactOff}`);
+  const { buildQuartet, defaultChain } = await import('./js/params.js');
+  const quartet = buildQuartet(defaultChain(), { ...base, grainAmount: 0.2 });
+  const texKnob = quartet.find((m) => m.name === 'Texture');
+  const grainMap = texKnob.mappings.find((mm) => mm.key === 'grainAmount');
+  const energyKnob = quartet.find((m) => m.name === 'Energy');
+  step('quartet: knob 0 = fully dry, mapped dry -> sweet-hi',
+    quartet.length === 4 && quartet.every((m) => m.mappings.length > 0)
+      && !!grainMap && grainMap.min === 0 && Math.abs(grainMap.max - 0.55) < 1e-6,
+    quartet.map((m) => `${m.name}=${m.mappings.length}`).join(' '));
+  step('quartet: knobs start at the current look',
+    Math.abs(texKnob.value - 0.37) < 0.011    // grain 0.2/0.55, ca 0.15/0.4
+      && Math.abs(energyKnob.value - 0.63) < 0.011, // audReact 1/1.6
+    `Texture=${texKnob.value} Energy=${energyKnob.value}`);
+  step('device More… disclosure present (adv folded)',
+    idoc.querySelectorAll('.more-btn').length >= 2
+      && [...idoc.querySelectorAll('.adv-body')].every((a) => a.hidden));
+
+  const pm = { ...base, vhsOn: true, fogOn: true };
+  const detDiff = maxDiff(captureFrame(pm), captureFrame(pm));
+  step('modulated render is deterministic', detDiff === 0, `maxDiff=${detDiff}`);
+
+  // 3e — new device packs: intensity 0 == absent, and determinism when on
+  const newOff = captureFrame({ ...base });
+  const newZero = captureFrame({
+    ...base,
+    lensOn: true, lensMix: 0, lensFish: 0.8, lensTwirl: 0.5,
+    glitchOn: true, glitchMix: 0, glBlock: 0.8, glSlice: 0.8, glStreak: 0.5,
+    zbOn: true, zbMix: 0, zbAmount: 0.8,
+    rippleOn: true, rippleMix: 0, ripAmount: 0.9,
+    pixelOn: true, pixelMix: 0, pxAmount: 0.8, pxPosterize: 0.8,
+    strobeOn: true, strobeMix: 0, strAmount: 1, strFlash: 1,
+  });
+  const newDiff = maxDiff(newOff, newZero);
+  step('new devices: intensity 0 == absent (lens/glitch/zb/ripple/pixel/strobe)',
+    newDiff <= 1, `maxDiff=${newDiff}`);
+  const allOn = {
+    ...base,
+    lensOn: true, lensFish: 0.5, glitchOn: true, zbOn: true, zbAmount: 0.3,
+    rippleOn: true, dofOn: true, dofAmount: 0.8, pixelOn: true,
+    htOn: true, htMix: 0.6, edgeOn: true, edgeMix: 0.4, strobeOn: true,
+  };
+  const newDet = maxDiff(captureFrame(allOn), captureFrame(allOn));
+  step('new devices render deterministically', newDet === 0, `maxDiff=${newDet}`);
+  const dofDiff = maxDiff(captureFrame({ ...base }), captureFrame({ ...base, dofOn: true, dofAmount: 1, dofRange: 0.05, dofFocus: 1 }));
+  step('depth of field blurs out-of-focus regions', dofDiff > 2, `maxDiff=${dofDiff}`);
+
+  // 3f — user-definable crossovers re-route the multiband set
+  const { FeatureBank: FB } = await import('./js/features.js');
+  const frames = 100;
+  const flat = new Array(frames).fill(0);
+  const ramp = Array.from({ length: frames }, (_, i) => i / (frames - 1));
+  const bandsArr = Array.from({ length: 16 }, (_, bi) => (bi === 3 ? ramp : flat));
+  const edges = Array.from({ length: 17 }, (_, i) => 30 * Math.pow(10000 / 30, i / 16));
+  const synthAnalysis = {
+    frameRate: 50, frames, duration: 2, tempo: 120, beatOffset: 0,
+    rms: flat, low: flat, mid: flat, high: flat, onsetEnv: flat,
+    onsets: [], sections: [0], wavePeaks: [0],
+    bands: bandsArr, bandEdges: edges,
+  };
+  // band 3 centre ≈ 107 Hz: 'low' with the default 160 Hz crossover…
+  const fb = new FB(synthAnalysis);
+  fb.setResponse({ attackMs: 0, releaseMs: 20, lowMidHz: 160, midHighHz: 2000 });
+  const sLow = fb.sample(1.0);
+  // …and 'mid' when the crossover drops to 60 Hz
+  fb.setResponse({ attackMs: 0, releaseMs: 20, lowMidHz: 60, midHighHz: 2000 });
+  const sMid = fb.sample(1.0);
+  step('crossovers re-route the multiband set',
+    sLow.low > 0.3 && sLow.mid < 0.05 && sMid.low < 0.05 && sMid.mid > 0.3,
+    `low@160=${sLow.low.toFixed(2)} mid@60=${sMid.mid.toFixed(2)}`);
+
+  // 4 — a tiny real export through the actual WebSocket + ffmpeg path,
+  // using a range (start offset) like the loop-region export does
+  const shortBank = { duration: 1.5, sample: (t) => bank.sample(t) };
+  const summary = await runExport({
+    renderer, bank: shortBank, params, reframe, projectId: pid,
+    start: 0.25, duration: 1.0,
+    width: 192, height: 108, fps: 24, quality: 'standard',
+    onProgress: () => {},
+    shouldAbort: () => false,
+  });
+  step('browser-side range export produced MP4', !!summary.file && summary.size > 5000,
+    `${summary.file} (${summary.size} B)`);
+}
+
+main()
+  .catch((e) => step('unhandled', false, `${e.message} :: ${(e.stack || '').split('\n')[1] || ''}`))
+  .finally(async () => {
+    document.title = report.failed ? 'SMOKE-FAIL' : 'SMOKE-PASS';
+    await post('smoke-result');
+  });
+</script>
+</body>
+</html>

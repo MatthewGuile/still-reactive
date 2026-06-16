@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Still Reactive</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand">Still <span>Reactive</span></div>
+      <div class="seg" id="aspectSeg" title="aspect ratio"></div>
+      <label class="ctl">FPS
+        <select id="fpsSelect">
+          <option value="24">24</option>
+          <option value="30" selected>30</option>
+          <option value="60">60</option>
+        </select>
+      </label>
+      <button id="guidesBtn" class="ctl-btn" title="composition guides">Guides</button>
+      <button id="signalBtn" class="ctl-btn workspace-tab" title="Audio Response — live spectrum, BPM, and what the music is driving">Signal ▾</button>
+      <span class="spacer"></span>
+      <input id="presetName" placeholder="preset name…">
+      <button id="savePresetBtn" class="ctl-btn" title="Save the current params + device chain as a reusable preset (no audio or automation). Snapshots — in the left panel — save the whole session instead.">Save as preset</button>
+      <button id="exportPill" class="ctl-btn" hidden></button>
+      <button id="exportBtn" class="primary">Export…</button>
+    </header>
+
+    <!-- R8-2: global Audio Response / Signal panel (not a device) -->
+    <div id="signalPanel" hidden>
+      <div class="signal-head">
+        <strong>Audio Response</strong>
+        <span class="hint">live signal analysis &amp; modulation sources — drives macros, devices &amp; automation</span>
+        <button id="signalClose" class="ctl-btn ctl-mini" title="close" aria-label="Close Audio Response panel">×</button>
+      </div>
+      <!-- R9-8: progressive disclosure — Signal first, shaping + advanced fold away -->
+      <div class="signal-row1">
+        <div class="signal-spectrum-col">
+          <div class="signal-col-h">Spectrum — drag the crossover handles to reshape Low / Mid / High</div>
+          <canvas id="spectrumCanvas" width="640" height="150"></canvas>
+        </div>
+        <div class="signal-bpm-col">
+          <div class="signal-col-h">Tempo &amp; grid</div>
+          <div id="signalBpm"></div>
+        </div>
+      </div>
+      <details class="signal-tier">
+        <summary>Band shaping &amp; response</summary>
+        <div id="signalControls" class="signal-controls"></div>
+      </details>
+      <details class="signal-tier">
+        <summary>Advanced — routing &amp; diagnostics</summary>
+        <div class="signal-adv">
+          <div>
+            <div class="signal-col-h">Modulation sources</div>
+            <div id="signalSources"></div>
+          </div>
+          <div>
+            <div class="signal-col-h">What's driving what</div>
+            <div id="signalMapping" class="hint">load a project and play to see live routing</div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div id="middle">
+      <aside id="left">
+        <section>
+          <h3>Inputs</h3>
+          <!-- R10-1/2: Audio (set once) + Canvas base layer (editable anytime) -->
+          <div class="start-only">
+            <h4 class="inputs-sub">Audio</h4>
+            <label class="file-btn">Upload audio
+              <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.flac,.m4a,.ogg">
+            </label>
+            <div class="hint">enables playback &amp; audio reactivity — or drop it on the preview</div>
+          </div>
+          <h4 class="inputs-sub">Base layer</h4>
+          <label class="ctl">Source
+            <select id="canvasFill">
+              <option value="colour">Solid colour</option>
+              <option value="gradient">Gradient</option>
+              <option value="pattern">Pattern</option>
+              <option value="transparent">Transparent</option>
+              <option value="image">Image</option>
+            </select>
+          </label>
+          <label class="file-btn" id="canvasImageBtn" hidden>Upload image
+            <input type="file" id="imageInput" accept="image/*">
+          </label>
+          <div id="canvasColorRow">
+            <div class="swatch-field">
+              <span class="swatch-label" id="colorLabel1">Colour</span>
+              <div class="swatches" id="swatches1"></div>
+            </div>
+            <div class="swatch-field" id="colorField2" hidden>
+              <span class="swatch-label">Top colour</span>
+              <div class="swatches" id="swatches2"></div>
+            </div>
+            <input type="color" id="blankColor" value="#12131a" hidden>
+            <input type="color" id="blankColor2" value="#3a2a5a" hidden>
+          </div>
+          <div id="inputStatus" class="hint">Choose a base layer now. Add audio when you’re ready to make it react.</div>
+          <div id="mediaCard" hidden>
+            <img id="mediaThumb" alt="">
+            <div class="media-meta">
+              <div id="mediaImageName" class="media-name"></div>
+              <div id="mediaAudioName" class="media-name"></div>
+              <div id="mediaInfo" class="hint"></div>
+              <button id="swapImageBtn" class="ctl-btn ctl-mini"
+                      title="new image, same song — keeps every parameter, lane and macro">Change image</button>
+              <input type="file" id="swapImageInput" accept="image/*" hidden>
+            </div>
+          </div>
+        </section>
+        <section id="looksSection" hidden>
+          <h3>Looks</h3>
+          <div id="lookBrowser" class="look-grid"></div>
+        </section>
+        <section id="snapshotSection" hidden>
+          <h3>Snapshots <button id="snapshotSave" class="ctl-btn ctl-mini" title="Save the whole session as a named checkpoint — params, chain, automation, tempo. (A preset, top-right, saves params + chain only.)">+ Save</button></h3>
+          <ul id="snapshotList" class="list"></ul>
+        </section>
+        <!-- R9-2: manage-previous-work, de-emphasised into a collapsible Library -->
+        <details id="librarySection" class="library">
+          <summary>Library</summary>
+          <section>
+            <h3>Projects</h3>
+            <ul id="projectList" class="list"></ul>
+          </section>
+          <section>
+            <h3>Presets</h3>
+            <ul id="presetList" class="list"></ul>
+          </section>
+          <section>
+            <h3>Exports</h3>
+            <ul id="exportList" class="list"></ul>
+          </section>
+        </details>
+      </aside>
+
+      <div id="leftResize" title="drag to resize the inputs panel"></div>
+      <main id="stage">
+        <div id="canvasWrap">
+          <canvas id="glCanvas"></canvas>
+          <div id="sourcePreview"></div>
+          <canvas id="guides"></canvas>
+          <!-- R10/follow-up: the preview is the visual source (or empty);
+               guidance is a slim floating callout pointing at Inputs, not a
+               big block. Drag-and-drop still works on the canvas. -->
+          <div id="dropHint">
+            <div id="startCallout">
+              <span class="callout-arrow">‹</span>
+              <span id="calloutText">Choose a base layer &amp; add audio in <b>Inputs</b> — or drop files here</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <div id="rightResize" title="drag to resize the device panel"></div>
+      <aside id="right">
+        <div id="macroRack"></div>
+        <div id="paramPanels"></div>
+      </aside>
+    </div>
+
+    <div id="bottomResize" title="drag to resize the timeline (lane editor open)"></div>
+    <footer id="bottom">
+      <div id="transportRow">
+        <button id="playBtn" title="play / pause (space)" aria-label="Play or pause">▶</button>
+        <button id="loopBtn" class="ctl-btn ctl-mini" title="loop the region (shift+drag in the ruler to set it; double-click the brace also toggles)">Loop</button>
+        <span id="timeLabel">0:00 / 0:00</span>
+        <span class="vsep"></span>
+        <label class="ctl">BPM
+          <input type="number" id="bpmInput" min="20" max="300" step="0.01" title="tempo grid — prefilled from detection, correct it to taste">
+        </label>
+        <button id="bpmHalf" class="ctl-btn ctl-mini" title="halve the BPM (octave error fix)" aria-label="Halve BPM">÷2</button>
+        <button id="bpmDouble" class="ctl-btn ctl-mini" title="double the BPM (octave error fix)" aria-label="Double BPM">×2</button>
+        <label class="ctl">Beats/bar
+          <select id="sigSelect">
+            <option>2</option><option>3</option><option value="4" selected>4</option>
+            <option>5</option><option>6</option><option>7</option>
+          </select>
+        </label>
+        <button id="barOneBtn" class="ctl-btn" title="anchor bar 1 to the current playhead (or drag the blue flag in the ruler — it snaps to onsets)">Bar 1 here</button>
+        <button id="nudgeL" class="ctl-btn ctl-mini" title="nudge bar 1 one beat earlier (Shift: half a beat)" aria-label="Nudge bar 1 one beat earlier">‹</button>
+        <button id="nudgeR" class="ctl-btn ctl-mini" title="nudge bar 1 one beat later (Shift: half a beat)" aria-label="Nudge bar 1 one beat later">›</button>
+        <button id="shortcutsBtn" class="ctl-btn ctl-mini" title="keyboard &amp; mouse shortcuts" aria-label="Keyboard and mouse shortcuts">?</button>
+        <button id="reenableBtn" class="ctl-btn reenable" hidden
+                title="some lanes are bypassed by slider overrides — turn them all back on">Re-enable automation</button>
+        <span class="spacer"></span>
+        <div id="laneCluster" hidden>
+          <span id="laneInfo" class="lane-name"></span>
+          <div class="seg" id="modeToggle" title="Move: drag to select, click to seek · Draw: click to add points (D toggles)">
+            <button id="modeMoveBtn" type="button">Move</button>
+            <button id="modeDrawBtn" type="button">Draw</button>
+          </div>
+          <label class="ctl">Snap
+            <select id="snapSelect">
+              <option value="bar">Bar</option>
+              <option value="beat" selected>Beat</option>
+              <option value="half">1/2</option>
+              <option value="quarter">1/4</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <button id="fitBtn" class="ctl-btn ctl-mini" title="zoom to fit the whole song (F)">Fit</button>
+          <button id="laneClear" class="ctl-btn" title="remove all points">Clear</button>
+          <button id="laneClose" class="ctl-btn" title="close lane (Esc)" aria-label="Close lane">×</button>
+        </div>
+      </div>
+      <div id="laneChips" hidden></div>
+      <div id="timelineWrap"><canvas id="timeline"></canvas></div>
+    </footer>
+  </div>
+
+  <div id="exportModal" hidden>
+    <div class="modal-card">
+      <h3>Export MP4 (H.264 + AAC 320k — audio untouched)</h3>
+      <label>Range
+        <select id="exportRange">
+          <option value="all" selected>Whole song</option>
+          <option value="loop">Loop region</option>
+        </select>
+        <span class="hint" id="exportRangeHint" hidden>range exports start with clean feedback trails (same as seeking)</span>
+      </label>
+      <label>Resolution
+        <select id="exportResolution"></select>
+      </label>
+      <label>Quality
+        <select id="exportQuality">
+          <option value="high" selected>High (CRF 16, banding-safe)</option>
+          <option value="standard">Standard (CRF 19)</option>
+          <option value="draft">Draft (CRF 23, fast encode)</option>
+        </select>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="exportMotionBlur">
+        Synthetic motion blur — final renders only (3× slower)
+      </label>
+      <label class="row">
+        <input type="checkbox" id="exportBatch">
+        Batch: export all three aspects
+      </label>
+      <label class="row">
+        <input type="checkbox" id="exportServer">
+        Render on server (keep working — you can even close this tab)
+      </label>
+      <div id="exportSummary" class="export-summary"></div>
+      <progress id="exportProgress" value="0" max="1"></progress>
+      <div id="exportStatus" class="hint"></div>
+      <div class="modal-actions">
+        <button id="exportHide" class="ctl-btn" hidden
+                title="keep exporting in the background (progress stays in the top bar)">Hide</button>
+        <button id="exportCancel" class="ctl-btn">Cancel</button>
+        <button id="exportGo" class="primary">Start export</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "name": "still-reactive-web",
+  "private": true,
+  "type": "module",
+  "description": "Marker so tooling (node --check) treats the JS files as ES modules. The app itself has no build step."
+}
