@@ -671,32 +671,32 @@ export function paramIndex() {
   return index;
 }
 
-// Apply macro mappings: each mapped param is *owned* by its macro — the
-// macro position scans the mapping's [min, max] range, overriding the
-// param's own value (and any direct lane on it, since this runs after lane
-// automation). Pure function of (params, macros).
+// Apply every rack's macro mappings. Each mapped param is *owned* by its
+// macro — the macro position (param `${rackId}.m${n}`) scans the mapping's
+// [min,max], overriding the param's own value and any direct lane (this runs
+// after lane automation). Pure function of (params, racks).
 let MACRO_SCHEMA = null;
-export function applyMacros(p, macros) {
-  if (!macros || !macros.length) return p;
-  if (!MACRO_SCHEMA) MACRO_SCHEMA = paramIndex();
+export function applyMacros(p, racks) {
+  if (!racks || !racks.length) return p;
+  if (!MACRO_SCHEMA) MACRO_SCHEMA = paramIndex(); // no racks → device params only
   let out = null;
-  for (let i = 0; i < macros.length; i++) {
-    const maps = macros[i].mappings;
-    if (!maps || !maps.length) continue;
-    const mk = `macro${i + 1}`;
-    const v = p[mk] === undefined ? 0 : p[mk];
-    if (!out) out = { ...p };
-    for (const m of maps) {
-      const s = MACRO_SCHEMA[m.key];
-      if (!s) continue;
-      const val = m.min + (m.max - m.min) * v;
-      if (s.type === 'bool') {
-        out[m.key] = val >= 0.5;
-      } else if (s.type === 'enum') {
-        const idx = Math.round(Math.min(Math.max(val, 0), s.options.length - 1));
-        out[m.key] = s.options[idx];
-      } else {
-        out[m.key] = val;
+  for (const rack of racks) {
+    if (!rack || !rack.macros) continue;
+    for (let j = 0; j < rack.macros.length; j++) {
+      const maps = rack.macros[j].mappings;
+      if (!maps || !maps.length) continue;
+      const mk = rackMacroKey(rack.id, j + 1);
+      const v = p[mk] === undefined ? 0 : p[mk];
+      if (!out) out = { ...p };
+      for (const m of maps) {
+        const s = MACRO_SCHEMA[m.key];
+        if (!s) continue;
+        const val = m.min + (m.max - m.min) * v;
+        if (s.type === 'bool') out[m.key] = val >= 0.5;
+        else if (s.type === 'enum') {
+          const idx = Math.round(Math.min(Math.max(val, 0), s.options.length - 1));
+          out[m.key] = s.options[idx];
+        } else out[m.key] = val;
       }
     }
   }
