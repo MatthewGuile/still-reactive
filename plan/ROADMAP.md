@@ -61,9 +61,13 @@ user's own test videos.
 >
 > **Repo is now under git** (`git init`; work branch **`feat/racks-v1`**;
 > `.claude/` git-ignored with a local test/git permission allowlist).
-> **Implementation is PAUSED at a clean baseline** — a first subagent run was
-> reverted (it derailed on permission-prompt thrash), the allowlist now fixes
-> that friction. Resume = re-dispatch the Phase 1 implementer per the plan.
+> **Implementation IN PROGRESS (2026-06-19) via subagent-driven-development.**
+> Done & reviewed-clean: **Phase 1 (Tasks 1.1–1.5), Phase 2 (2.1–2.3), Phase 3
+> Task 3.1** — HEAD `417ac02` on `feat/racks-v1`, all suites green, app boots on
+> `state.racks=[]`. **NEXT = Task 3.2.** Full resume guide + per-task loop +
+> carried decisions live in **`.sdd/RESUME.md`** (with `.sdd/progress.md`, the SDD
+> ledger). Note: SDD working files are in gitignored `.sdd/`, and a test/CI
+> permission setup is in `.claude/settings.json`.
 
 **Working sequence (agreed 2026-06-16)** — reordered around the product-eval
 feedback: clarity first, then the big architecture on a guarded base. The
