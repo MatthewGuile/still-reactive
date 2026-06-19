@@ -80,6 +80,59 @@ function clearRackLanes(rack) {
   }
 }
 
+// ------------------------------------------------- rack CRUD (Task 3.1)
+
+function nextRackId() {
+  let max = 0;
+  for (const r of state.racks) {
+    const m = /^rk(\d+)$/.exec(r.id);
+    if (m) max = Math.max(max, +m[1]);
+  }
+  return `rk${max + 1}`;
+}
+
+function createRack(name = 'Rack') {
+  const rack = { id: nextRackId(), name: name.slice(0, 24), deviceIds: [],
+    macros: [{ name: 'Macro 1', mappings: [] }] };
+  state.racks.push(rack);
+  params()[rackMacroKey(rack.id, 1)] = 0;
+  rebuildParamIndex();
+  buildRacksArea();
+  autosaveAutomation();
+  commitHistory();
+  return rack;
+}
+
+function deleteRack(id) {
+  const i = state.racks.findIndex((r) => r.id === id);
+  if (i < 0) return;
+  const rack = state.racks[i];
+  clearRackLanes(rack);
+  for (let j = 0; j < rack.macros.length; j++) delete params()[rackMacroKey(rack.id, j + 1)];
+  state.racks.splice(i, 1);
+  if (state.editRack === id) state.editRack = null;
+  // exitMapMode exists (line ~611); guard in case future refactor removes it
+  if (state.mapping && state.mapping.rackId === id) {
+    if (typeof exitMapMode === 'function') exitMapMode();
+  }
+  rebuildParamIndex();
+  buildRacksArea();
+  panel.refreshAutoButtons();
+  renderLaneChips();
+  timeline.draw();
+  autosaveAutomation();
+  commitHistory();
+}
+
+function renameRack(id, name) {
+  const r = state.racks.find((x) => x.id === id);
+  if (!r || !name.trim()) return;
+  r.name = name.trim().slice(0, 24);
+  rebuildParamIndex();
+  buildRacksArea();
+  autosaveAutomation();
+}
+
 const tempoMap = new TempoMap();
 
 // Arrangement: loop region + user markers, beats-domain (glued to the grid
@@ -705,6 +758,11 @@ function setFollowStructure(on) {
     toast('Follow structure off — Energy lane cleared');
   }
 }
+
+// Task 3.1 stub: full implementation in Task 3.5. Called by createRack /
+// deleteRack / renameRack so the CRUD functions are fully self-contained even
+// before the rack-card UI exists.
+function buildRacksArea() {}
 
 // TODO Phase 3: buildRacksArea() — render state.racks (rack cards, macro
 // knobs, map mode, mapping editor). The old single global-macro rack is
@@ -3030,3 +3088,7 @@ window.__rebuild = {
   clearRackLanes,                       // Task 2.3: orphan-lane cleanup helper
   automation,                           // Task 2.3: live AutomationSet instance
 };
+
+// Task 3.1 test hook: rack CRUD. Later tasks Object.assign() their own fns.
+// ADDITIVE ONLY — do not reference functions that don't exist yet (Tasks 3.2+).
+window.__racks = { createRack, deleteRack, renameRack, state };

@@ -610,6 +610,22 @@ async function main() {
     W.__rebuild.automation.clear('rkLane.m2');
   }
 
+  // Task 3.1 -- rack CRUD: createRack / deleteRack / renameRack
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const r = W.__racks.createRack('Psy');
+    step('createRack: unique rk id + 1 empty macro + seeds value param 0',
+      /^rk\d+$/.test(r.id) && r.macros.length === 1 && r.macros[0].mappings.length === 0
+      && W.__racks.state.params[`${r.id}.m1`] === 0, JSON.stringify({ id: r.id, m: r.macros.length }));
+    const before = W.__racks.state.racks.length;
+    W.__racks.deleteRack(r.id);
+    step('deleteRack removes it + drops its macro value param',
+      W.__racks.state.racks.length === before - 1 && W.__racks.state.params[`${r.id}.m1`] === undefined);
+    const r2 = W.__racks.createRack('Old'); W.__racks.renameRack(r2.id, 'New');
+    step('renameRack updates name', r2.name === 'New');
+    W.__racks.deleteRack(r2.id);
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],
