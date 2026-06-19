@@ -590,6 +590,26 @@ async function main() {
       before['rkTest.m1'] === undefined && W.__rebuild.schema === before);
   }
 
+  // Task 2.3 -- clearRackLanes drops automation lanes on a rack's macro keys
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const rack = { id: 'rkLane', name: 'L', deviceIds: [],
+      macros: [{ name: 'M1', mappings: [] }, { name: 'M2', mappings: [] }] };
+    // install lanes on rkLane.m1 and rkLane.m2 using the real automation API
+    W.__rebuild.automation.addPoint('rkLane.m1', 0, 0.5);
+    W.__rebuild.automation.addPoint('rkLane.m2', 0, 0.3);
+    step('precondition: rack macro keys have lanes before clearRackLanes',
+      W.__rebuild.automation.isAutomated('rkLane.m1')
+      && W.__rebuild.automation.isAutomated('rkLane.m2'));
+    W.__rebuild.clearRackLanes(rack);
+    step('clearRackLanes clears all rack macro lanes',
+      !W.__rebuild.automation.isAutomated('rkLane.m1')
+      && !W.__rebuild.automation.isAutomated('rkLane.m2'));
+    // cleanup: ensure no residual state
+    W.__rebuild.automation.clear('rkLane.m1');
+    W.__rebuild.automation.clear('rkLane.m2');
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],

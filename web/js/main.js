@@ -73,6 +73,13 @@ function rebuildParamIndex() {
   Object.assign(SCHEMA_INDEX, fresh);
 }
 
+// Drop automation lanes on a rack's (now dead) macro keys.
+function clearRackLanes(rack) {
+  for (let j = 0; j < (rack.macros ? rack.macros.length : 0); j++) {
+    automation.clear(rackMacroKey(rack.id, j + 1));
+  }
+}
+
 const tempoMap = new TempoMap();
 
 // Arrangement: loop region + user markers, beats-domain (glued to the grid
@@ -3014,9 +3021,12 @@ const headlessJobId = new URLSearchParams(location.search).get('headlessJob');
 if (headlessJobId) runHeadlessJob(headlessJobId);
 
 // Task 2.2 test hook: real rebuildParamIndex + shared SCHEMA_INDEX reference.
+// Task 2.3: extended with clearRackLanes + automation for orphan-lane tests.
 window.__rebuild = {
   run: rebuildParamIndex,
   schema: SCHEMA_INDEX,                 // the live shared object
   autoSchema: () => automation.schema,  // same reference the automation holds
   state,
+  clearRackLanes,                       // Task 2.3: orphan-lane cleanup helper
+  automation,                           // Task 2.3: live AutomationSet instance
 };
