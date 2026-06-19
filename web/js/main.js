@@ -63,6 +63,16 @@ const responseOf = (p) => ({
 
 const SCHEMA_INDEX = paramIndex();
 const automation = new AutomationSet(SCHEMA_INDEX);
+
+// Rack macro keys are dynamic. Rebuild SCHEMA_INDEX IN PLACE so every holder
+// of the reference (this const, automation.schema) sees the change without
+// reassigning a const. Call after any rack add/remove/rename/remap.
+function rebuildParamIndex() {
+  const fresh = paramIndex(state.racks);
+  for (const k of Object.keys(SCHEMA_INDEX)) delete SCHEMA_INDEX[k];
+  Object.assign(SCHEMA_INDEX, fresh);
+}
+
 const tempoMap = new TempoMap();
 
 // Arrangement: loop region + user markers, beats-domain (glued to the grid
@@ -3002,3 +3012,11 @@ requestAnimationFrame(frame);
 // to run an export without depending on the user's foreground tab.
 const headlessJobId = new URLSearchParams(location.search).get('headlessJob');
 if (headlessJobId) runHeadlessJob(headlessJobId);
+
+// Task 2.2 test hook: real rebuildParamIndex + shared SCHEMA_INDEX reference.
+window.__rebuild = {
+  run: rebuildParamIndex,
+  schema: SCHEMA_INDEX,                 // the live shared object
+  autoSchema: () => automation.schema,  // same reference the automation holds
+  state,
+};

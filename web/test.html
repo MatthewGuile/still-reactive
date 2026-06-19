@@ -573,6 +573,23 @@ async function main() {
       `${idx['rk1.m1'].groupLabel} . ${idx['rk1.m1'].label}`);
   }
 
+  // Task 2.2 -- rebuildParamIndex mutates the shared SCHEMA_INDEX in place
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const before = W.__rebuild.schema;                 // capture the live object reference
+    W.__rebuild.state.racks.push({ id: 'rkTest', name: 'T', deviceIds: [],
+      macros: [{ name: 'M1', mappings: [] }] });
+    W.__rebuild.run();
+    step('rebuildParamIndex adds rack macro key to shared SCHEMA_INDEX in place',
+      before['rkTest.m1'] && before['rkTest.m1'].automatable === true
+      && W.__rebuild.autoSchema()['rkTest.m1'], JSON.stringify(before['rkTest.m1'] || null));
+    // remove the rack and rebuild -> key gone (in-place delete), same object
+    W.__rebuild.state.racks.pop();
+    W.__rebuild.run();
+    step('rebuildParamIndex removes orphan macro key in place',
+      before['rkTest.m1'] === undefined && W.__rebuild.schema === before);
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],
