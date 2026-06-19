@@ -197,6 +197,14 @@ async function main() {
 
   // 3b — device Intensity faders: intensity 0 must equal the device being off
   const { paramIndex } = await import('./js/params.js');
+
+  // 3c -- rack macro key helper
+  const { rackMacroKey, MACRO_SLOTS } = await import('./js/params.js');
+  step('rackMacroKey builds per-rack macro keys',
+    rackMacroKey('rk1', 1) === 'rk1.m1' && rackMacroKey('rk2', 8) === 'rk2.m8'
+    && MACRO_SLOTS === 8,
+    `${rackMacroKey('rk1', 1)} / slots=${MACRO_SLOTS}`);
+
   const { AutomationSet } = await import('./js/automation.js');
   const captureFrame = (p) => {
     renderer.resetFeedback();
