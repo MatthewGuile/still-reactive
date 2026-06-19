@@ -139,6 +139,8 @@ async function main() {
   const { Renderer } = await import('./js/renderer.js');
   const { FeatureBank } = await import('./js/features.js');
   const { defaultParams } = await import('./js/params.js');
+  step('defaultParams no longer seeds global macro1..8',
+    defaultParams().macro1 === undefined && defaultParams().macro8 === undefined);
   const { getPack } = await import('./js/packs.js');
   const { runExport } = await import('./js/export.js');
 

@@ -620,7 +620,6 @@ export function defaultParams() {
     if (group.toggle) params[group.toggle] = !!group.defOn;
     for (const p of group.params) params[p.key] = p.def;
   }
-  for (let i = 1; i <= MACRO_COUNT; i++) params[`macro${i}`] = 0;
   return { ...params, ...DEFAULT_MODS };
 }
 
