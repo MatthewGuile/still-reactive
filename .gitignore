@@ -5,3 +5,4 @@ tests/fixtures/
 .venv/
 venv/
 .claude/
+.sdd/
