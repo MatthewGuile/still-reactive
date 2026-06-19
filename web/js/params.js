@@ -661,7 +661,17 @@ export function paramIndex(racks = []) {
       }
     }
   }
-  // rack macro keys are added by the caller-supplied racks — see Phase 2
+  for (const rack of racks) {
+    if (!rack || !rack.macros) continue;
+    for (let j = 0; j < rack.macros.length; j++) {
+      const key = rackMacroKey(rack.id, j + 1);
+      index[key] = {
+        key, label: rack.macros[j].name || `Macro ${j + 1}`,
+        min: 0, max: 1, step: 0.01, def: 0,
+        group: rack.id, groupLabel: rack.name || 'Rack', automatable: true,
+      };
+    }
+  }
   return index;
 }
 

@@ -560,6 +560,19 @@ async function main() {
     atZero.warpOn === false && atHalf.warpOn === true,
     `0 -> ${atZero.warpOn}, 0.75 -> ${atHalf.warpOn}`);
 
+  // Task 2.1 -- paramIndex emits rack macro entries
+  {
+    const racks = [{ id: 'rk1', name: 'Psy', deviceIds: [],
+      macros: [{ name: 'Swirl', mappings: [] }, { name: 'Glow', mappings: [] }] }];
+    const idx = paramIndex(racks);
+    step('paramIndex(racks): macro key present + automatable',
+      idx['rk1.m1'] && idx['rk1.m1'].automatable === true && idx['rk1.m2'],
+      JSON.stringify(idx['rk1.m1'] || null));
+    step('paramIndex(racks): label is "Rack . Macro"',
+      idx['rk1.m1'].label === 'Swirl' && idx['rk1.m1'].groupLabel === 'Psy',
+      `${idx['rk1.m1'].groupLabel} . ${idx['rk1.m1'].label}`);
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],
