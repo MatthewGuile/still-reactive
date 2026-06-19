@@ -199,6 +199,8 @@ async function main() {
 
   // 3b — device Intensity faders: intensity 0 must equal the device being off
   const { paramIndex } = await import('./js/params.js');
+  step('paramIndex no longer lists global macro1..8',
+    paramIndex().macro1 === undefined && paramIndex().macro8 === undefined);
 
   // 3c -- rack macro key helper
   const { rackMacroKey, MACRO_SLOTS } = await import('./js/params.js');

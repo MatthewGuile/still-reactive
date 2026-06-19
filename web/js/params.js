@@ -627,7 +627,7 @@ export function defaultParams() {
 // Includes: Device On toggles (type 'bool', stepped 0/1 lanes, Ableton
 // "Device On" parity) and synthetic mod-depth entries (`key~src`, -1..1) for
 // every moddable param — both fully automatable.
-export function paramIndex() {
+export function paramIndex(racks = []) {
   const index = {};
   for (const group of PARAM_GROUPS) {
     // R8-3: Master device automation reads "Master Grade · Vibrance" etc.,
@@ -661,12 +661,7 @@ export function paramIndex() {
       }
     }
   }
-  for (let i = 1; i <= MACRO_COUNT; i++) {
-    index[`macro${i}`] = {
-      key: `macro${i}`, label: `Macro ${i}`, min: 0, max: 1, step: 0.01, def: 0,
-      group: 'macros', groupLabel: 'Macros', automatable: true,
-    };
-  }
+  // rack macro keys are added by the caller-supplied racks — see Phase 2
   return index;
 }
 
