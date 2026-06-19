@@ -8,7 +8,7 @@ import { snapBeats } from './automation.js';
 import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
   PARAM_GROUPS, defaultChain, groupById, MOD_SOURCES, MOD_SEP,
-  MACRO_COUNT, defaultMacros, applyMacros, QUARTET, buildQuartet,
+  applyMacros, QUARTET, buildQuartet, MACRO_SLOTS, rackMacroKey,
   autoGradeFromStats,
 } from './params.js';
 import { STYLE_PACKS, getPack } from './packs.js';
@@ -27,10 +27,9 @@ const state = {
   fps: 30,
   params: null,         // the single working parameter set (R8: A/B removed)
   chain: [],            // added device ids, always in pipeline order
-  macros: [],           // [{name, mappings: [{key, min, max}]}] — the rack
-  macroCount: 4,        // visible macros (1..MACRO_COUNT); hidden ones keep working
-  mapping: null,        // macro index in Map mode, else null
-  macroEdit: null,      // macro index whose mapping list is open, else null
+  racks: [],            // [{id, name, deviceIds:[], macros:[{name, mappings:[{key,min,max}]}]}]
+  mapping: null,        // {rackId, macroIdx} in Map mode, else null
+  editRack: null,       // rack id whose mapping list is open, else null
   reframe: {
     '16:9': { x: 0, y: 0, scale: 1 },
     '9:16': { x: 0, y: 0, scale: 1 },
@@ -94,11 +93,13 @@ function syncTransportLoop() {
 function effParams(t) {
   let p = params();
   if (automation.hasLanes()) p = automation.apply(p, tempoMap.beatsAt(t));
-  return applyMacros(p, state.macros);
+  return applyMacros(p, state.racks);
 }
 
 function isMappedKey(key) {
-  return state.macros.some((m) => m.mappings.some((mm) => mm.key === key));
+  // Phase 3: reads per-rack macro mappings; harmless with state.racks = [].
+  return state.racks.some((r) => (r.macros || []).some(
+    (m) => (m.mappings || []).some((mm) => mm.key === key)));
 }
 
 function laneStateOf(key) {
@@ -185,6 +186,8 @@ function buildSessionPayload(includeSnapshots = true) {
     tempo: tempoMap.toJSON(),
     automation: automation.toJSON(),
     chain: state.chain,
+    // TODO Phase 5.1: persist state.racks here (old macros/macroCount keys
+    // are now undefined — JSON.stringify drops them, harmless for boot).
     macros: state.macros,
     macroCount: state.macroCount,
     loop: { ...loopRegion },
@@ -251,8 +254,7 @@ function applySessionData(saved) {
         .filter((g) => g.pinned || saved.chain.includes(g.id))
         .map((g) => g.id);
     }
-    if (Array.isArray(saved.macros)) state.macros = sanitizeMacros(saved.macros);
-    state.macroCount = sanitizeMacroCount(saved.macroCount, state.macros);
+    state.racks = Array.isArray(saved.racks) ? sanitizeRacks(saved.racks) : [];
     if (saved.loop && Number.isFinite(saved.loop.startB) && Number.isFinite(saved.loop.endB)) {
       loopRegion.startB = Math.max(saved.loop.startB, 0);
       loopRegion.endB = Math.max(saved.loop.endB, 0);
@@ -525,7 +527,7 @@ timeline.markers = songMarkers;
 
 state.params = defaultParams();   // R11-P0: clean default start, no look merged in
 state.chain = defaultChain();
-state.macros = defaultMacros();
+state.racks = [];                 // Racks v1: built in Phase 3 (no default rack)
 syncChainToParams();
 
 // Shared by the device panel and the macro rack.
@@ -584,104 +586,24 @@ const macroCells = [];
 let macroEditor = null;
 let followCheckbox = null;
 
-function sanitizeMacros(arr) {
-  const out = defaultMacros();
-  if (!Array.isArray(arr)) return out;
-  for (let i = 0; i < Math.min(arr.length, MACRO_COUNT); i++) {
-    const m = arr[i];
-    if (!m) continue;
-    if (typeof m.name === 'string' && m.name.trim()) out[i].name = m.name.slice(0, 24);
-    if (Array.isArray(m.mappings)) {
-      out[i].mappings = m.mappings.filter((mm) => mm
-        && SCHEMA_INDEX[mm.key]
-        && Number.isFinite(mm.min) && Number.isFinite(mm.max));
-    }
-  }
-  return out;
-}
+// Temporary rack sanitizer (hardened in Task 5.1). Just passes arrays through.
+function sanitizeRacks(a) { return Array.isArray(a) ? a : []; }
 
-function sanitizeMacroCount(n, macros) {
-  if (Number.isFinite(n)) return Math.min(Math.max(Math.round(n), 1), MACRO_COUNT);
-  // older saves carry no count: show enough to cover everything in use
-  let used = 0;
-  (macros || []).forEach((m, i) => {
-    if (m.mappings.length || m.name !== `Macro ${i + 1}`) used = i + 1;
-  });
-  return Math.min(Math.max(used, 4), MACRO_COUNT);
-}
-
-function setMacroCount(n) {
-  const next = Math.min(Math.max(n, 1), MACRO_COUNT);
-  if (next === state.macroCount) return;
-  if (next < state.macroCount) {
-    const hiddenWithMaps = state.macros
-      .slice(next)
-      .filter((m) => m.mappings.length).length;
-    if (hiddenWithMaps) {
-      toast(`${hiddenWithMaps} hidden macro(s) still have mappings — they keep working`);
-    }
-    if (state.mapping !== null && state.mapping >= next) exitMapMode();
-    if (state.macroEdit !== null && state.macroEdit >= next) state.macroEdit = null;
-  }
-  state.macroCount = next;
-  buildMacroRack();
-  autosaveAutomation();
-}
-
-function toggleMapMode(i) {
-  state.mapping = state.mapping === i ? null : i;
-  paramPanelsEl.classList.toggle('map-mode', state.mapping !== null);
-  refreshMacroRack();
-  if (state.mapping !== null) {
-    toast(`Map mode: click any parameter to map it to "${state.macros[i].name}" (Esc to exit)`);
-  }
-}
-
+// Map mode exits to "no mapping". Live call sites: Escape key, applyPreset.
+// state.mapping is now {rackId, macroIdx} | null (set by the Phase-3 rack UI).
 function exitMapMode() {
   state.mapping = null;
   paramPanelsEl.classList.remove('map-mode');
   refreshMacroRack();
 }
 
-function addMapping(i, key) {
-  const s = SCHEMA_INDEX[key];
-  if (!s || s.group === 'macros') {
-    toast('That control cannot be macro-mapped.', 'error');
-    return;
-  }
-  // Ableton rule: a param belongs to at most one macro.
-  for (const m of state.macros) {
-    m.mappings = m.mappings.filter((mm) => mm.key !== key);
-  }
-  let lo = 0;
-  let hi = 1;
-  if (s.type === 'enum') hi = s.options.length - 1;
-  else if (s.type !== 'bool') { lo = s.min; hi = s.max; }
-  state.macros[i].mappings.push({ key, min: lo, max: hi });
-  if (automation.isAutomated(key)) {
-    toast(`Note: the existing lane on "${s.label}" is ignored while macro-mapped`);
-  }
-  panel.refresh();
-  refreshMacroRack();
-  autosaveAutomation();
-  toast(`Mapped ${s.groupLabel} · ${s.label} → "${state.macros[i].name}"`);
-}
-
-function removeMapping(i, j) {
-  state.macros[i].mappings.splice(j, 1);
-  panel.refresh();
-  refreshMacroRack();
-  autosaveAutomation();
-}
-
-// Map mode: capture clicks anywhere in the device panel and map the row.
+// TODO Phase 3: map mode is rebuilt by the Racks UI (Task 3.3). Until then it
+// stays non-functional — the listener no-ops because state.mapping is null.
 paramPanelsEl.addEventListener('click', (e) => {
   if (state.mapping === null) return;
-  const rowEl = e.target.closest('[data-key]');
-  if (!rowEl) return;
+  // TODO Phase 3: addMapping(state.mapping, rowEl…) against state.racks.
   e.preventDefault();
   e.stopPropagation();
-  addMapping(state.mapping, rowEl.getAttribute('data-key'));
 }, true);
 
 const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
@@ -691,25 +613,11 @@ const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
 // axis silenced); knobs start at positions matching the current look, so
 // building the quartet doesn't jolt the picture. Macros 5–8 are kept
 // (minus any mappings the quartet claims — a param belongs to one macro).
+// TODO Phase 3: rebuilt against state.racks (a "quartet rack"). The old
+// global-macro implementation is parked — no live caller now the rack UI is
+// absent. `buildQuartet`/QUARTET stay imported for the Phase-3 rewrite.
 function applyQuartet() {
-  const p = params();
-  const q = buildQuartet(state.chain, p);
-  const claimed = new Set(q.flatMap((m) => m.mappings.map((mm) => mm.key)));
-  q.forEach((m, i) => {
-    state.macros[i] = { name: m.name, mappings: m.mappings };
-    p[`macro${i + 1}`] = m.value;
-  });
-  for (let i = q.length; i < state.macros.length; i++) {
-    state.macros[i].mappings = state.macros[i].mappings.filter((mm) => !claimed.has(mm.key));
-  }
-  if (state.macroCount < q.length) state.macroCount = q.length;
-  buildMacroRack();
-  panel.refresh(); // claimed params become macro-owned (disabled sliders)
-  autosaveAutomation();
-  const dead = q.filter((m) => !m.mappings.length).map((m) => m.name);
-  toast(dead.length
-    ? `Quartet built — ${dead.join(' / ')} idle: no devices on that axis in the chain`
-    : 'Quartet built: Energy · Motion · Texture · Colour — 0 is fully dry; knobs start at the current look');
+  // Phase 3: build the standard quartet into a rack. No-op until the rack UI.
 }
 
 // R5-P5: Follow song structure. Writes a visible, editable lane on the
@@ -761,7 +669,7 @@ function buildFollowStructure() {
 function setFollowStructure(on) {
   state.followStructure = on;
   if (on) {
-    if (!state.macros[0].mappings.length) applyQuartet(); // need an Energy knob
+    // TODO Phase 3: ensure an Energy macro exists on a rack before ramping.
     state.followLocked = false;
     buildFollowStructure();
     commitHistory();
@@ -781,196 +689,26 @@ function setFollowStructure(on) {
   }
 }
 
+// TODO Phase 3: buildRacksArea() — render state.racks (rack cards, macro
+// knobs, map mode, mapping editor). The old single global-macro rack is
+// parked. For now the macro/rack UI is intentionally ABSENT: these three are
+// safe no-ops so every live caller (restoreHistory, setParamValue, applyPack,
+// openLane, project load, snapshot/preset restore) keeps working with
+// state.racks = []. #macroRack stays empty in the DOM.
 function buildMacroRack() {
+  // TODO Phase 3: buildRacksArea()
   macroRack.textContent = '';
   macroCells.length = 0;
   followCheckbox = null;
-
-  // R9-3: empty state — no idle macros before there's something to control.
-  if (!state.project) {
-    macroRack.append(el('div', { class: 'macro-empty' },
-      el('div', { class: 'macro-empty-h', text: 'No active look yet' }),
-      el('div', { class: 'hint', text: 'Upload media or choose a look to start controlling Energy, Motion and effects.' })));
-    return;
-  }
-
-  // R9-7: simple by default — the header carries the core "+ Macro" action;
-  // power features (Quartet, Follow structure, macro count) live behind "…".
-  const advMenu = el('div', { class: 'macro-adv-menu' });
-  advMenu.hidden = true;
-  followCheckbox = el('input', {
-    type: 'checkbox', onchange: (e) => setFollowStructure(e.target.checked),
-  });
-  followCheckbox.checked = state.followStructure;
-  advMenu.append(
-    el('button', {
-      class: 'ctl-btn ctl-mini', text: '◇ Build quartet',
-      title: 'auto-build Energy / Motion / Texture / Colour knobs for the current chain',
-      onclick: () => { applyQuartet(); advMenu.hidden = true; },
-    }),
-    el('label', { class: 'follow-toggle', title: 'ramp the Energy macro across song sections by loudness' },
-      followCheckbox, el('span', { text: 'Follow song structure' })),
-    el('div', { class: 'macro-count-ctl' },
-      el('span', { class: 'hint', text: 'Visible macros' }),
-      el('button', { class: 'macro-count-btn', text: '−', onclick: () => setMacroCount(state.macroCount - 1) }),
-      el('span', { class: 'macro-count-num', text: String(state.macroCount) }),
-      el('button', { class: 'macro-count-btn', text: '+', onclick: () => setMacroCount(state.macroCount + 1) })));
-  macroRack.append(el('div', { class: 'rack-header' },
-    el('span', { text: 'MACROS' }),
-    el('span', { class: 'hint', text: 'map ▸ name ▸ automate' }),
-    el('button', {
-      class: 'ctl-btn ctl-mini macro-adv-btn', text: '⋯', title: 'advanced: quartet, follow structure, macro count',
-      onclick: () => { advMenu.hidden = !advMenu.hidden; },
-    }),
-    advMenu));
-  const grid = el('div', { class: `rack-grid${state.macroCount <= 4 ? ' cols-2' : ''}` });
-  state.macros.slice(0, state.macroCount).forEach((m, i) => {
-    const key = `macro${i + 1}`;
-    const name = el('div', {
-      class: 'macro-name', text: m.name, title: 'double-click to rename',
-      ondblclick: () => {
-        const n = prompt('Macro name', state.macros[i].name);
-        if (n && n.trim()) {
-          state.macros[i].name = n.trim().slice(0, 24);
-          name.textContent = state.macros[i].name;
-          autosaveAutomation();
-        }
-      },
-    });
-    const value = el('span', { class: 'macro-value', text: '0.00' });
-    const slider = el('input', {
-      type: 'range', min: 0, max: 1, step: 0.01,
-      oninput: (e) => {
-        const v = parseFloat(e.target.value);
-        value.textContent = v.toFixed(2);
-        setParamValue(key, v);
-      },
-      ondblclick: () => {
-        value.textContent = '0.00';
-        setParamValue(key, 0, { refreshInput: false });
-        slider.value = 0;
-      },
-    });
-    const led = el('button', {
-      class: 'auto-btn', text: '◆', title: 'automate this macro (right-click: quick actions)',
-      onclick: () => openLane(key),
-      oncontextmenu: (e) => {
-        e.preventDefault();
-        showQuickMenu(key, e.clientX, e.clientY);
-      },
-    });
-    const mapBtn = el('button', {
-      class: 'macro-map', text: 'M', title: 'map mode — then click any param',
-      onclick: () => toggleMapMode(i),
-    });
-    const badge = el('button', {
-      class: 'macro-badge', text: '0', title: 'edit this macro’s mappings',
-      onclick: () => {
-        state.macroEdit = state.macroEdit === i ? null : i;
-        refreshMacroRack();
-      },
-    });
-    const release = () => { slider._held = false; };
-    slider.addEventListener('pointerdown', () => { slider._held = true; });
-    slider.addEventListener('pointerup', release);
-    slider.addEventListener('pointercancel', release);
-    // R9-8: scannable "what does this macro control?" line.
-    const summary = el('div', { class: 'macro-summary hint' });
-    const cell = el('div', { class: 'macro-cell' },
-      name, slider, summary,
-      el('div', { class: 'macro-foot' }, led, mapBtn, badge, value));
-    macroCells.push({ key, idx: i, slider, value, led, mapBtn, badge, cell, summary });
-    grid.append(cell);
-  });
-  macroRack.append(grid);
-  macroEditor = el('div', { class: 'macro-mappings' });
-  macroEditor.hidden = true;
-  macroRack.append(macroEditor);
-  refreshMacroRack();
 }
 
 function refreshMacroRack() {
-  const p = params();
-  for (const c of macroCells) {
-    const v = p[c.key] === undefined ? 0 : p[c.key];
-    c.slider.value = v;
-    c.value.textContent = (+v).toFixed(2);
-    const s = laneStateOf(c.key);
-    c.led.classList.toggle('lane-on', s === 'on');
-    c.led.classList.toggle('lane-off', s === 'off');
-    c.mapBtn.classList.toggle('active', state.mapping === c.idx);
-    const maps = state.macros[c.idx].mappings;
-    const count = maps.length;
-    c.badge.textContent = String(count);
-    c.badge.classList.toggle('has-maps', count > 0);
-    // a quartet knob with no targets in the chain is honest about it
-    const dead = QUARTET_NAMES.has(state.macros[c.idx].name) && count === 0;
-    c.cell.classList.toggle('macro-dead', dead);
-    c.cell.title = dead ? 'no devices on this axis in the chain — add one, then rebuild the quartet' : '';
-    // R9-8: at-a-glance summary of what this macro controls + shared audio
-    if (c.summary) {
-      if (!count) {
-        c.summary.textContent = 'unmapped — press M, then click a control';
-      } else {
-        const names = [...new Set(maps.map((mm) => (SCHEMA_INDEX[mm.key] || {}).groupLabel).filter(Boolean))];
-        const audio = maps.some((mm) => MOD_SOURCES.some((src) => p[`${mm.key}${MOD_SEP}${src}`]));
-        c.summary.textContent = `→ ${names.slice(0, 3).join(', ')}${names.length > 3 ? '…' : ''}`
-          + (audio ? '  ♪ audio too' : '');
-        c.summary.title = maps.map((mm) => {
-          const s = SCHEMA_INDEX[mm.key] || { label: mm.key };
-          return `${s.groupLabel || ''} · ${s.label}  [${(+mm.min).toFixed(2)}→${(+mm.max).toFixed(2)}]`;
-        }).join('\n');
-      }
-    }
-  }
-  rebuildMacroEditor();
+  // TODO Phase 3: refresh rack cards from state.racks.
   if (signalOpen) refreshSignalMapping();
 }
 
 function rebuildMacroEditor() {
-  if (!macroEditor) return;
-  if (state.macroEdit === null) {
-    macroEditor.hidden = true;
-    return;
-  }
-  const i = state.macroEdit;
-  const m = state.macros[i];
-  macroEditor.hidden = false;
-  macroEditor.textContent = '';
-  macroEditor.append(el('div', { class: 'rack-header' },
-    el('span', { text: `${m.name} — mappings` })));
-  if (!m.mappings.length) {
-    macroEditor.append(el('div', { class: 'hint', text: 'none yet — press M, then click a param' }));
-    return;
-  }
-  m.mappings.forEach((map, j) => {
-    const s = SCHEMA_INDEX[map.key] || { label: map.key, groupLabel: '?', step: 0.01 };
-    const minIn = el('input', {
-      type: 'number', value: String(map.min), step: String(s.step || 0.01), class: 'map-num',
-      onchange: (e) => {
-        const v = parseFloat(e.target.value);
-        if (Number.isFinite(v)) { map.min = v; autosaveAutomation(); }
-      },
-    });
-    const maxIn = el('input', {
-      type: 'number', value: String(map.max), step: String(s.step || 0.01), class: 'map-num',
-      onchange: (e) => {
-        const v = parseFloat(e.target.value);
-        if (Number.isFinite(v)) { map.max = v; autosaveAutomation(); }
-      },
-    });
-    macroEditor.append(el('div', { class: 'map-row' },
-      el('span', {
-        class: 'map-label map-reveal', text: `${s.groupLabel} · ${s.label}`,
-        title: 'show this parameter in its device',
-        onclick: () => revealParam(map.key),
-      }),
-      minIn, el('span', { class: 'hint', text: '→' }), maxIn,
-      el('button', {
-        class: 'mini-del', text: '×', title: 'remove mapping',
-        onclick: () => removeMapping(i, j),
-      })));
-  });
+  // TODO Phase 3: render the open rack's mapping editor (state.editRack).
 }
 
 buildMacroRack();
@@ -2253,8 +1991,7 @@ async function loadProject(meta) {
   tempoMap.beatsPerBar = 4;
   tempoMap.offset = state.bank.beatOffset || 0;
   state.chain = defaultChain();
-  state.macros = defaultMacros();
-  state.macroCount = 4;
+  state.racks = [];               // Racks v1: no default rack (Phase 3 builds UI)
   loopRegion.startB = 0;
   loopRegion.endB = 0;
   loopRegion.on = false;
@@ -2703,17 +2440,8 @@ function refreshSignalMapping() {
     const s = SCHEMA_INDEX[k.slice(0, sep)];
     if (s) add(src, `${s.groupLabel} · ${s.label}`);
   }
-  // macros automated/modulated by a source then driving mapped params
-  for (let i = 0; i < state.macros.length; i++) {
-    const m = state.macros[i];
-    if (!m.mappings.length) continue;
-    for (const src of MOD_SOURCES) {
-      if (p[`macro${i + 1}${MOD_SEP}${src}`]) {
-        const targets = m.mappings.map((mm) => (SCHEMA_INDEX[mm.key] || {}).groupLabel).filter(Boolean);
-        add(src, `${m.name} → ${[...new Set(targets)].join(', ')}`);
-      }
-    }
-  }
+  // TODO Phase 3: list rack macros (state.racks) modulated by a source then
+  // driving mapped params. Parked while the rack UI is absent.
   box.textContent = '';
   const active = MOD_SOURCES.filter((s) => bySrc[s]);
   if (!active.length) {
@@ -2860,9 +2588,8 @@ function applyPreset(p) {
       .filter((g) => g.pinned || p.chain.includes(g.id))
       .map((g) => g.id);
   }
-  state.macros = p.macros ? sanitizeMacros(p.macros) : defaultMacros();
-  state.macroCount = sanitizeMacroCount(p.macroCount, state.macros);
-  state.macroEdit = null;
+  state.racks = Array.isArray(p.racks) ? sanitizeRacks(p.racks) : [];
+  state.editRack = null;
   exitMapMode();
   buildMacroRack();
   syncChainToParams();
@@ -2892,7 +2619,7 @@ document.getElementById('savePresetBtn').addEventListener('click', async () => {
     body: JSON.stringify({
       name, pack: state.packId, aspect: state.aspect, fps: state.fps,
       params: params(), reframe: state.reframe, chain: state.chain,
-      macros: state.macros, macroCount: state.macroCount,
+      racks: state.racks, // Racks v1: matches applyPreset's p.racks restore
       tempo: tempoMap.toJSON(), automation: automation.toJSON(),
     }),
   });
