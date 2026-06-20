@@ -674,21 +674,63 @@ let followCheckbox = null;
 // Temporary rack sanitizer (hardened in Task 5.1). Just passes arrays through.
 function sanitizeRacks(a) { return Array.isArray(a) ? a : []; }
 
+function mapParamToMacro(rackId, macroIdx, key) {
+  const s = SCHEMA_INDEX[key];
+  if (!s || s.automatable === false || /^rk\d+\.m\d+$/.test(key)) {
+    toast('That control cannot be macro-mapped.', 'error'); return;
+  }
+  // exclusive: a param belongs to one macro across all racks
+  for (const r of state.racks)
+    for (const mac of r.macros) mac.mappings = mac.mappings.filter((mm) => mm.key !== key);
+  const rack = state.racks.find((x) => x.id === rackId);
+  if (!rack || !rack.macros[macroIdx]) return;
+  let lo = 0, hi = 1;
+  if (s.type === 'enum') hi = s.options.length - 1;
+  else if (s.type !== 'bool') { lo = s.min; hi = s.max; }
+  rack.macros[macroIdx].mappings.push({ key, min: lo, max: hi });
+  if (automation.isAutomated(key))
+    toast(`Note: the existing lane on "${s.label}" is ignored while macro-mapped`);
+  panel.refresh(); buildRacksArea(); autosaveAutomation(); commitHistory();
+  toast(`Mapped ${s.groupLabel} · ${s.label} → "${rack.macros[macroIdx].name}"`);
+}
+
+function removeMapping(rackId, macroIdx, j) {
+  const rack = state.racks.find((x) => x.id === rackId);
+  if (!rack || !rack.macros[macroIdx]) return;
+  rack.macros[macroIdx].mappings.splice(j, 1);
+  panel.refresh(); buildRacksArea(); autosaveAutomation(); commitHistory();
+}
+
+function addMacro(rackId) {
+  const r = state.racks.find((x) => x.id === rackId);
+  if (!r || r.macros.length >= MACRO_SLOTS) return;
+  r.macros.push({ name: `Macro ${r.macros.length + 1}`, mappings: [] });
+  params()[rackMacroKey(r.id, r.macros.length)] = 0;
+  rebuildParamIndex(); buildRacksArea(); autosaveAutomation(); commitHistory();
+}
+
+function toggleMapMode(rackId, macroIdx) {
+  const same = state.mapping && state.mapping.rackId === rackId && state.mapping.macroIdx === macroIdx;
+  state.mapping = same ? null : { rackId, macroIdx };
+  paramPanelsEl.classList.toggle('map-mode', state.mapping !== null);
+  buildRacksArea();
+  if (state.mapping) toast('Map mode: click any parameter to map it (Esc to exit)');
+}
+
 // Map mode exits to "no mapping". Live call sites: Escape key, applyPreset.
 // state.mapping is now {rackId, macroIdx} | null (set by the Phase-3 rack UI).
 function exitMapMode() {
   state.mapping = null;
   paramPanelsEl.classList.remove('map-mode');
-  refreshMacroRack();
+  buildRacksArea();
 }
 
-// TODO Phase 3: map mode is rebuilt by the Racks UI (Task 3.3). Until then it
-// stays non-functional — the listener no-ops because state.mapping is null.
 paramPanelsEl.addEventListener('click', (e) => {
-  if (state.mapping === null) return;
-  // TODO Phase 3: addMapping(state.mapping, rowEl…) against state.racks.
-  e.preventDefault();
-  e.stopPropagation();
+  if (!state.mapping) return;
+  const rowEl = e.target.closest('[data-key]');
+  if (!rowEl) return;
+  e.preventDefault(); e.stopPropagation();
+  mapParamToMacro(state.mapping.rackId, state.mapping.macroIdx, rowEl.getAttribute('data-key'));
 }, true);
 
 const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
@@ -3109,3 +3151,5 @@ window.__rebuild = {
 window.__racks = { createRack, deleteRack, renameRack, state };
 // Task 3.2: device membership ops.
 Object.assign(window.__racks, { addDeviceToRack, removeDeviceFromRack });
+// Task 3.3: rack-scoped mapping.
+Object.assign(window.__racks, { mapParamToMacro });

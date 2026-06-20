@@ -637,6 +637,20 @@ async function main() {
     W.__racks.deleteRack(a.id); W.__racks.deleteRack(b.id);
   }
 
+  // Task 3.3 -- rack-scoped mapping + Map mode + addMacro
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const r = W.__racks.createRack('M');
+    W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount');
+    step('mapParamToMacro: exclusive ownership + full-range default',
+      r.macros[0].mappings.length === 1
+      && r.macros[0].mappings[0].key === 'bloomAmount', JSON.stringify(r.macros[0].mappings));
+    // map the same param to a 2nd macro → removed from the first
+    W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount'); // same macro: no dup
+    step('no duplicate mapping on the same macro', r.macros[0].mappings.length === 1);
+    W.__racks.deleteRack(r.id);
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],
