@@ -1,8 +1,42 @@
-__pycache__/
-*.pyc
-data/
-tests/fixtures/
-.venv/
-venv/
+# Local AI / planning artifacts
 .claude/
 .sdd/
+.codex/
+.agents/
+docs/superpowers/
+plan/
+
+# Python local/dev artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Runtime app data
+data/
+
+# Test-generated/local fixtures
+tests/fixtures/
+
+# Node/tooling cache
+node_modules/
+web/node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
