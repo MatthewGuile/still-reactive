@@ -7,6 +7,8 @@ look in a live WebGL preview, then export an MP4.
 It runs on your machine, stores projects locally, and does not require a cloud
 service or a frontend build step.
 
+Please note that it is still a work-in-progress tool.
+
 ## Features
 
 - Image, solid colour, gradient, pattern, or transparent canvas as the visual
