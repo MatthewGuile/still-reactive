@@ -48,13 +48,6 @@ The app opens at:
 ```text
 http://127.0.0.1:8765
 ```
-
-Use `--no-browser` if you want to start the server without opening a tab:
-
-```bash
-python -m still_reactive --no-browser
-```
-
 ## Basic Workflow
 
 1. Choose a base layer in the Inputs panel.
