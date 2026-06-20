@@ -22,8 +22,11 @@ _SAFE_EXT = re.compile(r"[^A-Za-z0-9]")
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9 _.\-]")
 
 
+RACKS = DATA / "racks"
+
+
 def init_dirs() -> None:
-    for d in (PROJECTS, PRESETS, EXPORTS):
+    for d in (PROJECTS, PRESETS, EXPORTS, RACKS):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -197,6 +200,39 @@ def list_presets() -> list[dict]:
 
 def delete_preset(slug: str) -> bool:
     path = PRESETS / f"{preset_slug(slug)}.json"
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def rack_slug(name: str) -> str:
+    slug = _SAFE_NAME.sub("", name).strip().replace(" ", "-").lower()[:60]
+    return slug or "rack"
+
+
+def save_rack(payload: dict) -> dict:
+    init_dirs()
+    name = str(payload.get("name") or "rack")[:80]
+    slug = rack_slug(name)
+    payload = {**payload, "name": name, "slug": slug, "saved": time.time()}
+    (RACKS / f"{slug}.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
+
+def list_racks() -> list[dict]:
+    init_dirs()
+    out = []
+    for p in sorted(RACKS.glob("*.json")):
+        try:
+            out.append(json.loads(p.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return out
+
+
+def delete_rack(slug: str) -> bool:
+    path = RACKS / f"{rack_slug(slug)}.json"
     if path.exists():
         path.unlink()
         return True
