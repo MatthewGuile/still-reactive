@@ -5,6 +5,7 @@
 .agents/
 docs/superpowers/
 plan/
+!docs/ROADMAP.md
 
 # Python local/dev artifacts
 __pycache__/
