@@ -272,10 +272,7 @@ function buildSessionPayload(includeSnapshots = true) {
     tempo: tempoMap.toJSON(),
     automation: automation.toJSON(),
     chain: state.chain,
-    // TODO Phase 5.1: persist state.racks here (old macros/macroCount keys
-    // are now undefined — JSON.stringify drops them, harmless for boot).
-    macros: state.macros,
-    macroCount: state.macroCount,
+    racks: state.racks,
     loop: { ...loopRegion },
     markers: songMarkers.map((m) => ({ b: m.b, name: m.name })),
     // R6-P1: the whole look, not just its automation.
@@ -341,6 +338,7 @@ function applySessionData(saved) {
         .map((g) => g.id);
     }
     state.racks = Array.isArray(saved.racks) ? sanitizeRacks(saved.racks) : [];
+    rebuildParamIndex();
     if (saved.loop && Number.isFinite(saved.loop.startB) && Number.isFinite(saved.loop.endB)) {
       loopRegion.startB = Math.max(saved.loop.startB, 0);
       loopRegion.endB = Math.max(saved.loop.endB, 0);
@@ -673,8 +671,15 @@ let macroEditor = null;
 let followCheckbox = null;
 let rackCells = [];   // [{rackId, macroIdx, key, slider, value, led, mapBtn}]
 
-// Temporary rack sanitizer (hardened in Task 5.1). Just passes arrays through.
-function sanitizeRacks(a) { return Array.isArray(a) ? a : []; }
+function sanitizeRacks(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.macros)).map((r) => ({
+    id: r.id, name: String(r.name || 'Rack').slice(0, 24),
+    deviceIds: Array.isArray(r.deviceIds) ? r.deviceIds.filter((d) => groupById(d)) : [],
+    macros: r.macros.map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
+      mappings: Array.isArray(m.mappings) ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max)) : [] })),
+  }));
+}
 
 function mapParamToMacro(rackId, macroIdx, key) {
   const s = SCHEMA_INDEX[key];
@@ -3313,3 +3318,5 @@ Object.assign(window.__racks, { mapParamToMacro });
 Object.assign(window.__racks, { autoRack });
 // Task 4.4: apply saved rack to project.
 Object.assign(window.__racks, { applyRackToProject });
+// Task 5.1: session payload test hook.
+window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload(true));

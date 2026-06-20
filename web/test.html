@@ -849,6 +849,17 @@ async function main() {
     W.__racks.deleteRack(r.id);
   }
 
+  // Task 5.1 -- session payload carries racks (not macros/macroCount)
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const r = W.__racks.createRack('Persisted');
+    const payload = JSON.parse(W.__buildSessionPayload ? W.__buildSessionPayload() : '{}');
+    step('session payload carries racks (not macros/macroCount)',
+      Array.isArray(payload.racks) && payload.macros === undefined
+      && payload.racks.some((x) => x.name === 'Persisted'));
+    W.__racks.deleteRack(r.id);
+  }
+
   // 4 — a tiny real export through the actual WebSocket + ffmpeg path,
   // using a range (start offset) like the loop-region export does
   const shortBank = { duration: 1.5, sample: (t) => bank.sample(t) };
