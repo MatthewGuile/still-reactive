@@ -132,6 +132,7 @@ function renameRack(id, name) {
   rebuildParamIndex();
   buildRacksArea();
   autosaveAutomation();
+  commitHistory();
 }
 
 function addDeviceToRack(rackId, deviceId) {
@@ -208,6 +209,8 @@ function historySnapshot() {
     // well — committed at gesture boundaries (slider release, button click),
     // never per pointer-move. Automation lanes ride on top at render time.
     params: state.params,
+    chain: state.chain,
+    racks: state.racks,
   });
 }
 
@@ -241,13 +244,16 @@ function restoreHistory(snap) {
     panel.refresh();
     if (state.bank) state.bank.setResponse(responseOf(params()));
   }
+  if (Array.isArray(s.chain)) state.chain = s.chain.slice();
+  if (Array.isArray(s.racks)) { state.racks = s.racks; rebuildParamIndex(); }
+  panel.rebuild();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
   syncTransportLoop();
   applyTempoUI();
   panel.refreshAutoButtons();
   renderLaneChips();
   updateReenable();
-  refreshRacks();
+  buildRacksArea();
   timeline.draw();
   autosaveAutomation();
 }
@@ -3321,3 +3327,5 @@ Object.assign(window.__racks, { autoRack });
 Object.assign(window.__racks, { applyRackToProject });
 // Task 5.1: session payload test hook.
 window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload(true));
+// Task 5.2: undo test hook.
+window.__undo = () => undoAutomation();

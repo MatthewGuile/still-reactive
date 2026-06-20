@@ -860,6 +860,28 @@ async function main() {
     W.__racks.deleteRack(r.id);
   }
 
+  // Task 5.2 -- undo covers rack create + rack rename
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const n0 = W.__racks.state.racks.length;
+    const r = W.__racks.createRack('UndoMe');           // commits history
+    const n1 = W.__racks.state.racks.length;
+    W.__undo();                                          // revert the create
+    step('Ctrl+Z reverts a rack create',
+      W.__racks.state.racks.length === n0 && n1 === n0 + 1);
+    // rename-undo: create, rename, undo → name reverts
+    const r2 = W.__racks.createRack('Before');
+    W.__racks.renameRack(r2.id, 'After');               // must commit history
+    const renamed = W.__racks.state.racks.find((x) => x.id === r2.id).name;
+    W.__undo();                                          // revert the rename
+    const reverted = W.__racks.state.racks.find((x) => x.id === r2.id);
+    step('Ctrl+Z reverts a rack rename',
+      renamed === 'After' && !!reverted && reverted.name === 'Before');
+    W.__undo();                                          // revert the create of r2
+    // tidy any leftover test racks
+    for (const x of W.__racks.state.racks.filter((x) => ['Before','After','UndoMe'].includes(x.name))) W.__racks.deleteRack(x.id);
+  }
+
   // 4 — a tiny real export through the actual WebSocket + ffmpeg path,
   // using a range (start offset) like the loop-region export does
   const shortBank = { duration: 1.5, sample: (t) => bank.sample(t) };
