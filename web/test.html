@@ -803,6 +803,30 @@ async function main() {
     W.__racks.deleteRack(r.id);
   }
 
+  // Task 3.6 -- end-to-end: rack macro drives its mapped param through applyMacros
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const { applyMacros, paramIndex } = await import('./js/params.js');
+    const r = W.__racks.createRack('Auto');
+    W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount');   // bloomAmount range is 0..1.5
+    const key = `${r.id}.m1`;
+
+    // END-TO-END: the macro value drives its mapped param through applyMacros.
+    // macro=0 → fully dry (0); macro=1 → mapped max (1.5).
+    const dry  = applyMacros({ [key]: 0 }, W.__racks.state.racks).bloomAmount;
+    const full = applyMacros({ [key]: 1 }, W.__racks.state.racks).bloomAmount;
+    step('rack macro drives its mapped param end-to-end (0→dry, 1→full range)',
+      Math.abs(dry - 0) < 1e-6 && Math.abs(full - 1.5) < 1e-6,
+      `dry=${dry}, full=${full}`);
+
+    // the rack macro key is a real, automatable schema entry (lane editor target)
+    const idx2 = paramIndex(W.__racks.state.racks);
+    step('lane editor can target the rack macro',
+      !!idx2[key] && idx2[key].automatable === true, JSON.stringify(idx2[key] || null));
+
+    W.__racks.deleteRack(r.id);
+  }
+
   // 4 — a tiny real export through the actual WebSocket + ffmpeg path,
   // using a range (start offset) like the loop-region export does
   const shortBank = { duration: 1.5, sample: (t) => bank.sample(t) };
