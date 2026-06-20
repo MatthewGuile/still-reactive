@@ -9,7 +9,7 @@ import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
   PARAM_GROUPS, defaultChain, groupById, MOD_SOURCES, MOD_SEP,
   applyMacros, QUARTET, buildQuartet, MACRO_SLOTS, rackMacroKey,
-  autoGradeFromStats,
+  autoGradeFromStats, rackToSaved, applyRackToState,
 } from './params.js';
 import { STYLE_PACKS, getPack } from './packs.js';
 import { ParamPanel, el, toast, formatTime } from './ui.js';
@@ -2861,6 +2861,60 @@ document.getElementById('savePresetBtn').addEventListener('click', async () => {
   toast(`Preset "${name}" saved`);
 });
 
+// ---------------------------------------------------------- Racks library
+// Task 4.4: save a live rack to the library, apply a saved rack onto the
+// project, and refresh the saved-racks list (mirrors the preset CRUD above).
+function saveRack(rackId) {
+  const r = state.racks.find((x) => x.id === rackId);
+  if (!r) return;
+  const name = prompt('Save rack as', r.name) || r.name;
+  fetch('/api/racks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...rackToSaved(r, params()), name }),
+  }).then(() => { refreshRackLibrary(); toast(`Rack "${name}" saved`); });
+}
+
+function applyRackToProject(saved) {
+  const snap = applyRackToState(
+    saved,
+    { chain: state.chain, params: params(), racks: state.racks },
+    nextRackId(),
+  );
+  state.chain = PARAM_GROUPS
+    .filter((g) => g.pinned || snap.chain.includes(g.id))
+    .map((g) => g.id);
+  state.params = snap.params;
+  state.racks = snap.racks;
+  rebuildParamIndex();
+  syncChainToParams();
+  panel.rebuild();
+  buildRacksArea();
+  if (state.bank) state.bank.setResponse(responseOf(params()));
+  autosaveAutomation();
+  commitHistory();
+  toast(`Rack "${saved.name}" added`);
+}
+
+async function refreshRackLibrary() {
+  const list = document.getElementById('rackList');
+  if (!list) return;
+  list.textContent = '';
+  const racks = await fetch('/api/racks').then((r) => r.json());
+  for (const s of racks) {
+    const li = el('li', { text: s.name, onclick: () => applyRackToProject(s) });
+    li.append(el('button', {
+      class: 'mini-del', text: '×', title: 'delete saved rack',
+      onclick: async (e) => {
+        e.stopPropagation();
+        await fetch(`/api/racks/${s.slug}`, { method: 'DELETE' });
+        refreshRackLibrary();
+      },
+    }));
+    list.append(li);
+  }
+}
+
 async function refreshExports() {
   const list = document.getElementById('exportList');
   list.textContent = '';
@@ -3228,6 +3282,7 @@ layoutCanvas();
 applyMode();
 refreshProjects();
 refreshPresets();
+refreshRackLibrary();
 refreshExports();
 requestAnimationFrame(frame);
 
@@ -3256,3 +3311,5 @@ Object.assign(window.__racks, { addDeviceToRack, removeDeviceFromRack });
 Object.assign(window.__racks, { mapParamToMacro });
 // Task 3.4: auto rack.
 Object.assign(window.__racks, { autoRack });
+// Task 4.4: apply saved rack to project.
+Object.assign(window.__racks, { applyRackToProject });

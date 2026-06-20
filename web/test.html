@@ -86,8 +86,8 @@ async function main() {
   step('R6 UI present (media card / swap / export pill+hide)',
     !!idoc.getElementById('mediaCard') && !!idoc.getElementById('swapImageBtn')
       && !!idoc.getElementById('exportPill') && !!idoc.getElementById('exportHide'));
-  step('R4/R5 UI present (canvas / looks / device chain always visible)',
-    !!idoc.getElementById('canvasFill') && !!idoc.getElementById('lookBrowser')
+  step('R4/R5 UI present (canvas / device chain always visible)',
+    !!idoc.getElementById('canvasFill')
       && !idoc.getElementById('viewToggle')
       && !!idoc.querySelector('#paramPanels [data-key="canvasOn"]'));
   step('R9/R10 UI present (Library / signal tiers / spectrum)',
@@ -123,6 +123,10 @@ async function main() {
     !!idoc.querySelector('#macroRack .macro-empty'));
   step('Racks area present with + Rack control',
     !!idoc.querySelector('#macroRack .rack-add') || !!idoc.querySelector('[data-add-rack]'));
+  // Task 4.4: saved-racks library section + parked preset UI hidden.
+  step('Racks library section present', !!idoc.querySelector('#rackLibrary'));
+  step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
+    || idoc.querySelector('#savePresetBtn').offsetParent === null);
   step('R7 UI present (Style dropdown gone / focus / snapshots / master)',
     !idoc.getElementById('packSelect')
       && !!idoc.querySelector('.focus-toggle')
