@@ -192,6 +192,30 @@ def main():
         assert exc.code == 404, exc.code
     print("rename + delete : ok (sibling cleaned up, 404 after delete)")
 
+    # rack round-trip (POST → GET → DELETE)
+    rack = {"name": "My Rack", "deviceIds": ["bloom"],
+            "params": {"bloomThreshold": 0.5},
+            "macros": [{"name": "Glow", "value": 0.4,
+                        "mappings": [{"key": "bloomAmount", "min": 0.0, "max": 0.8}]}]}
+    req = urllib.request.Request(
+        f"{BASE}/api/racks",
+        data=json.dumps(rack).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        assert r.status == 200
+        saved = json.loads(r.read())
+    slug = saved["slug"]
+    status, body = get("/api/racks")
+    assert status == 200
+    racks = json.loads(body)
+    assert any(x["slug"] == slug for x in racks), f"rack {slug!r} not in list"
+    req = urllib.request.Request(f"{BASE}/api/racks/{slug}", method="DELETE")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        assert r.status in (200, 204)
+    print(f"racks           : ok (POST/GET/DELETE roundtrip, slug={slug!r})")
+
     asyncio.run(test_export_missing_project())
 
     out_path = asyncio.run(test_export(pid))
