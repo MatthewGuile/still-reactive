@@ -214,6 +214,10 @@ def main():
     req = urllib.request.Request(f"{BASE}/api/racks/{slug}", method="DELETE")
     with urllib.request.urlopen(req, timeout=10) as r:
         assert r.status in (200, 204)
+    status, body = get("/api/racks")
+    assert status == 200
+    assert not any(x["slug"] == slug for x in json.loads(body)), f"rack {slug!r} still present after DELETE"
+    print("racks: DELETE removes the rack")
     print(f"racks           : ok (POST/GET/DELETE roundtrip, slug={slug!r})")
 
     asyncio.run(test_export_missing_project())
