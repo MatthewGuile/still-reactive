@@ -21,6 +21,14 @@ import uvicorn  # noqa: E402
 from still_reactive import store  # noqa: E402
 from still_reactive.server import app  # noqa: E402
 
+# Step names read from the page may contain non-ASCII (e.g. "0->dry" arrows).
+# On a Windows cp1252 console, printing them raises UnicodeEncodeError and
+# crashes the runner AFTER the tests pass. Force UTF-8 with replacement.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 PORT = 8799
 CHROME_CANDIDATES = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

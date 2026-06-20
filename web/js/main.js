@@ -8,7 +8,7 @@ import { snapBeats } from './automation.js';
 import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
   PARAM_GROUPS, defaultChain, groupById, MOD_SOURCES, MOD_SEP,
-  applyMacros, QUARTET, buildQuartet, MACRO_SLOTS, rackMacroKey,
+  applyMacros, buildQuartet, MACRO_SLOTS, rackMacroKey,
   autoGradeFromStats, rackToSaved, applyRackToState,
 } from './params.js';
 import { STYLE_PACKS, getPack } from './packs.js';
@@ -576,8 +576,10 @@ const timeline = new Timeline(document.getElementById('timeline'), {
   },
   onLaneCommit: () => {
     // Hand-editing the generated Energy lane stops Follow-structure regen
-    // (Live-style override latch).
-    if (state.followStructure && state.lane === 'macro1') state.followLocked = true;
+    // (Live-style override latch). The Energy lane now lives on the first
+    // rack's first macro key (firstMacroKey()), not the retired 'macro1'.
+    const fmk = firstMacroKey();
+    if (state.followStructure && fmk && state.lane === fmk) state.followLocked = true;
     commitHistory();
     renderLaneChips();
     updateReenable();
@@ -672,9 +674,6 @@ window.onerror = (msg, src, line) => {
 
 const macroRack = document.getElementById('macroRack');
 const paramPanelsEl = document.getElementById('paramPanels');
-const macroCells = [];
-let macroEditor = null;
-let followCheckbox = null;
 let rackCells = [];   // [{rackId, macroIdx, key, slider, value, led, mapBtn}]
 
 function sanitizeRacks(arr) {
@@ -770,8 +769,6 @@ paramPanelsEl.addEventListener('click', (e) => {
   if (s && s.group) { addDeviceToRack(state.assign, s.group); }
   exitAssignMode();
 }, true);
-
-const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
 
 // Task 3.4: Build the standard quartet into a new rack in one click.
 function autoRack() {
@@ -2263,7 +2260,6 @@ async function loadProject(meta) {
   refreshLooks();
   refreshSnapshots();
   applyMode();
-  if (followCheckbox) followCheckbox.checked = state.followStructure;
   renderer.resetFeedback();
   playBtn.textContent = '▶';
 }
@@ -2521,7 +2517,6 @@ function restoreSnapshot(i) {
   panel.rebuild();
   buildRacksArea();
   applyMode();
-  if (followCheckbox) followCheckbox.checked = state.followStructure;
   timeline.draw();
   resetHistory();
   renderer.resetFeedback();
@@ -2659,8 +2654,9 @@ function formatNum(v, s) {
 }
 
 // R8-4: mapping summary — what each audio source is currently driving, read
-// from macro mappings on macroN~src keys + direct modulation depths. Answers
-// "Bass → Shape Pulse amount, Beat → Camera bump, Highs → Particle shimmer".
+// from direct modulation depths on `target~src` keys (rack-macro routing is
+// parked, see TODO below). Answers "Bass -> Shape Pulse amount, Beat ->
+// Camera bump, Highs -> Particle shimmer".
 function refreshSignalMapping() {
   const box = document.getElementById('signalMapping');
   if (!box) return;
@@ -3240,29 +3236,6 @@ window.addEventListener('beforeunload', (e) => {
 
 // ------------------------------------------------------------ main loop
 
-// Live values: automated macro knobs follow their effective value (lanes)
-// with an orange thumb; idle knobs show the base. Never fight the pointer.
-function updateMacroLive(eff) {
-  const p = params();
-  for (const c of macroCells) {
-    if (c.slider._held) continue;
-    const v = eff[c.key];
-    let base = p[c.key];
-    if (base === undefined) base = 0;
-    const driven = v !== undefined && Number.isFinite(v) && Math.abs(v - base) > 0.005;
-    const show = driven ? v : base;
-    if (parseFloat(c.slider.value) !== show) {
-      c.slider.value = show;
-      c.value.textContent = (+show).toFixed(2);
-    }
-    if (c.slider._driven !== driven) {
-      c.slider._driven = driven;
-      c.slider.classList.toggle('driven', driven);
-      c.value.classList.toggle('driven-val', driven);
-    }
-  }
-}
-
 let lastNow = performance.now();
 let liveTickFrame = 0;
 function frame(now) {
@@ -3285,7 +3258,6 @@ function frame(now) {
   if (liveTickFrame === 0) {       // ~20 Hz is plenty for the displays
     const eff = applyModulation(ep, feat);
     panel.updateLiveValues(eff, modValues(feat));
-    updateMacroLive(eff);
     drawSignal(feat);
   }
 }

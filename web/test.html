@@ -568,7 +568,7 @@ async function main() {
     `remaining=${delAuto.lane('fogDensity').points.length}`);
 
   // 3c3 — macro rack: mapped params scan their range; bool maps by threshold
-  const { applyMacros, defaultMacros } = await import('./js/params.js');
+  const { applyMacros } = await import('./js/params.js');
   const rack3c3 = { id: 'rk1', name: 'M', deviceIds: ['warp'],
     macros: [{ name: 'A', mappings: [
       { key: 'warpAmount', min: 0.1, max: 0.9 },

@@ -554,23 +554,13 @@ const DEFAULT_MODS = {
   'strFlash~beat': 0.6,
 };
 
-// One global rack of macro knobs (Ableton-style). Macro values are ordinary
-// params (`macro1..macroN`) — automatable, A/B-switchable, preset-saved.
-// Names + mappings live beside the chain in app state.
-export const MACRO_COUNT = 8;
-
 // Each rack owns up to MACRO_SLOTS macro knobs. A macro's live value is an
-// ordinary (automatable) param keyed per rack instance, e.g. 'rk1.m3'.
+// ordinary (automatable) param keyed per rack instance, e.g. 'rk1.m3' —
+// automatable, A/B-switchable, preset-saved. Names + mappings live beside
+// the chain in app state.
 export const MACRO_SLOTS = 8;
 export function rackMacroKey(rackId, n) {
   return `${rackId}.m${n}`; // n is 1-based; no other key uses '.'
-}
-
-export function defaultMacros() {
-  return Array.from({ length: MACRO_COUNT }, (_, i) => ({
-    name: `Macro ${i + 1}`,
-    mappings: [], // [{ key, min, max }] in param units; inverted ranges allowed
-  }));
 }
 
 // The standard macro quartet — the same four knobs, meaning the same thing,
