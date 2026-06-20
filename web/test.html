@@ -644,10 +644,21 @@ async function main() {
     W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount');
     step('mapParamToMacro: exclusive ownership + full-range default',
       r.macros[0].mappings.length === 1
-      && r.macros[0].mappings[0].key === 'bloomAmount', JSON.stringify(r.macros[0].mappings));
-    // map the same param to a 2nd macro → removed from the first
+      && r.macros[0].mappings[0].key === 'bloomAmount'
+      && r.macros[0].mappings[0].min === 0 && r.macros[0].mappings[0].max === 1.5, JSON.stringify(r.macros[0].mappings));
+    // re-map the SAME param to the SAME macro → must not duplicate
     W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount'); // same macro: no dup
     step('no duplicate mapping on the same macro', r.macros[0].mappings.length === 1);
+    // exclusive ownership ACROSS racks: mapping bloomAmount into a 2nd rack
+    // must evict it from the first rack's macro.
+    const r2 = W.__racks.createRack('M2');
+    W.__racks.mapParamToMacro(r2.id, 0, 'bloomAmount');
+    step('mapParamToMacro evicts a param from its previous rack/macro',
+      r.macros[0].mappings.length === 0
+      && r2.macros[0].mappings.length === 1
+      && r2.macros[0].mappings[0].key === 'bloomAmount',
+      `r1=${r.macros[0].mappings.length} r2=${r2.macros[0].mappings.length}`);
+    W.__racks.deleteRack(r2.id);
     W.__racks.deleteRack(r.id);
   }
 
