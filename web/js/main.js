@@ -676,7 +676,7 @@ function sanitizeRacks(arr) {
   return arr.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.macros)).map((r) => ({
     id: r.id, name: String(r.name || 'Rack').slice(0, 24),
     deviceIds: Array.isArray(r.deviceIds) ? r.deviceIds.filter((d) => groupById(d)) : [],
-    macros: r.macros.map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
+    macros: r.macros.filter(Boolean).map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
       mappings: Array.isArray(m.mappings) ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max)) : [] })),
   }));
 }
@@ -2827,6 +2827,7 @@ function applyPreset(p) {
       .map((g) => g.id);
   }
   state.racks = Array.isArray(p.racks) ? sanitizeRacks(p.racks) : [];
+  rebuildParamIndex();   // rack macro keys (rkN.mM) into SCHEMA_INDEX before UI/lane rebuild
   state.editRack = null;
   exitMapMode();
   buildRacksArea();
