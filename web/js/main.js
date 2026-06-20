@@ -29,6 +29,7 @@ const state = {
   chain: [],            // added device ids, always in pipeline order
   racks: [],            // [{id, name, deviceIds:[], macros:[{name, mappings:[{key,min,max}]}]}]
   mapping: null,        // {rackId, macroIdx} in Map mode, else null
+  assign: null,         // rack id in device-Assign mode, else null
   editRack: null,       // rack id whose mapping list is open, else null
   reframe: {
     '16:9': { x: 0, y: 0, scale: 1 },
@@ -246,7 +247,7 @@ function restoreHistory(snap) {
   panel.refreshAutoButtons();
   renderLaneChips();
   updateReenable();
-  refreshMacroRack();
+  refreshRacks();
   timeline.draw();
   autosaveAutomation();
 }
@@ -625,7 +626,7 @@ function setParamValue(key, value, opts = {}) {
     panel.refreshAutoButtons();
     renderLaneChips();
     updateReenable();
-    refreshMacroRack();
+    refreshRacks();
     timeline.draw();
     toast(`Automation on "${SCHEMA_INDEX[key]?.label || key}" bypassed — click its ◆ to re-enable`);
     autosaveAutomation();
@@ -670,6 +671,7 @@ const paramPanelsEl = document.getElementById('paramPanels');
 const macroCells = [];
 let macroEditor = null;
 let followCheckbox = null;
+let rackCells = [];   // [{rackId, macroIdx, key, slider, value, led, mapBtn}]
 
 // Temporary rack sanitizer (hardened in Task 5.1). Just passes arrays through.
 function sanitizeRacks(a) { return Array.isArray(a) ? a : []; }
@@ -731,6 +733,31 @@ paramPanelsEl.addEventListener('click', (e) => {
   if (!rowEl) return;
   e.preventDefault(); e.stopPropagation();
   mapParamToMacro(state.mapping.rackId, state.mapping.macroIdx, rowEl.getAttribute('data-key'));
+}, true);
+
+// Task 3.5: Assign mode mirrors Map mode but adds a whole device to a rack.
+// Clicking any device header (or any of its params) resolves to the device
+// group and adds it as rack membership. Toggle re-entry exits.
+function enterAssignMode(rackId) {
+  state.assign = state.assign === rackId ? null : rackId;
+  paramPanelsEl.classList.toggle('assign-mode', state.assign != null);
+  buildRacksArea();
+  if (state.assign != null) toast('Assign mode: click a device (or any of its params) to add it to the rack — Esc to exit');
+}
+function exitAssignMode() {
+  state.assign = null;
+  paramPanelsEl.classList.remove('assign-mode');
+  buildRacksArea();
+}
+
+paramPanelsEl.addEventListener('click', (e) => {
+  if (state.assign == null) return;
+  const row = e.target.closest('[data-key]');
+  if (!row) return;
+  e.preventDefault(); e.stopPropagation();
+  const s = SCHEMA_INDEX[row.getAttribute('data-key')];
+  if (s && s.group) { addDeviceToRack(state.assign, s.group); }
+  exitAssignMode();
 }, true);
 
 const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
@@ -801,7 +828,7 @@ function buildFollowStructure() {
   panel.refreshAutoButtons();
   renderLaneChips();
   updateReenable();
-  refreshMacroRack();
+  refreshRacks();
   timeline.draw();
   autosaveAutomation();
 }
@@ -829,34 +856,91 @@ function setFollowStructure(on) {
   }
 }
 
-// Task 3.1 stub: full implementation in Task 3.5. Called by createRack /
-// deleteRack / renameRack so the CRUD functions are fully self-contained even
-// before the rack-card UI exists.
-function buildRacksArea() {}
-
-// TODO Phase 3: buildRacksArea() — render state.racks (rack cards, macro
-// knobs, map mode, mapping editor). The old single global-macro rack is
-// parked. For now the macro/rack UI is intentionally ABSENT: these three are
-// safe no-ops so every live caller (restoreHistory, setParamValue, applyPack,
-// openLane, project load, snapshot/preset restore) keeps working with
-// state.racks = []. #macroRack stays empty in the DOM.
-function buildMacroRack() {
-  // TODO Phase 3: buildRacksArea()
+// Task 3.5: the Racks area. Renders state.racks as rack cards inside #macroRack:
+// the header + add controls render unconditionally (so the UI is reachable even
+// with no project); the empty hint only shows when there are no racks.
+function buildRacksArea() {
   macroRack.textContent = '';
-  macroCells.length = 0;
-  followCheckbox = null;
+  rackCells = [];
+  macroRack.append(el('div', { class: 'rack-header' },
+    el('span', { text: 'RACKS' }),
+    el('button', { class: 'ctl-btn ctl-mini rack-add', 'data-add-rack': '1',
+      text: '+ Rack', onclick: () => createRack(`Rack ${state.racks.length + 1}`) }),
+    el('button', { class: 'ctl-btn ctl-mini', text: '◇ Auto rack',
+      title: 'Energy / Motion / Texture / Colour from the current chain', onclick: () => autoRack() })));
+  if (!state.racks.length) {
+    macroRack.append(el('div', { class: 'macro-empty' },
+      el('div', { class: 'macro-empty-h', text: 'No racks yet' }),
+      el('div', { class: 'hint', text: 'Add a rack to build macro knobs over your devices.' })));
+  }
+  for (const rack of state.racks) macroRack.append(buildRackCard(rack));
+  refreshRacks();
 }
 
-function refreshMacroRack() {
-  // TODO Phase 3: refresh rack cards from state.racks.
+function buildRackCard(rack) {
+  const card = el('div', { class: 'rack-card' });
+  const title = el('div', { class: 'rack-title', text: rack.name, title: 'double-click to rename',
+    ondblclick: () => { const n = prompt('Rack name', rack.name); if (n) renameRack(rack.id, n); } });
+  const del = el('button', { class: 'mini-del', text: '×', title: 'delete rack',
+    onclick: () => deleteRack(rack.id) });
+  const save = el('button', { class: 'ctl-btn ctl-mini', text: 'Save', title: 'save to library',
+    onclick: () => saveRack(rack.id) });
+  card.append(el('div', { class: 'rack-card-head' }, title, save, del));
+  const grid = el('div', { class: 'rack-grid' });
+  rack.macros.forEach((m, j) => grid.append(buildMacroCell(rack, j)));
+  grid.append(el('button', { class: 'ctl-btn ctl-mini', text: '+ macro',
+    onclick: () => addMacro(rack.id) }));
+  card.append(grid);
+  // device chips + assign affordance
+  const dev = el('div', { class: 'rack-devices' });
+  rack.deviceIds.forEach((d) => dev.append(el('span', { class: 'rack-dev-chip',
+    text: (groupById(d) || { label: d }).label,
+    onclick: () => removeDeviceFromRack(rack.id, d) })));
+  dev.append(el('button', { class: 'ctl-btn ctl-mini', text: '+ devices',
+    onclick: () => enterAssignMode(rack.id) }));
+  card.append(dev);
+  return card;
+}
+
+function buildMacroCell(rack, j) {
+  const key = rackMacroKey(rack.id, j + 1);
+  const name = el('div', { class: 'macro-name', text: rack.macros[j].name, title: 'double-click to rename',
+    ondblclick: () => { const n = prompt('Macro name', rack.macros[j].name);
+      if (n && n.trim()) { rack.macros[j].name = n.trim().slice(0, 24); rebuildParamIndex(); buildRacksArea(); autosaveAutomation(); } } });
+  const value = el('span', { class: 'macro-value', text: '0.00' });
+  const slider = el('input', { type: 'range', min: 0, max: 1, step: 0.01,
+    oninput: (e) => { const v = parseFloat(e.target.value); value.textContent = v.toFixed(2); setParamValue(key, v); },
+    ondblclick: () => { value.textContent = '0.00'; setParamValue(key, 0, { refreshInput: false }); slider.value = 0; } });
+  slider.addEventListener('pointerdown', () => { slider._held = true; });
+  const rel = () => { slider._held = false; };
+  slider.addEventListener('pointerup', rel); slider.addEventListener('pointercancel', rel);
+  const led = el('button', { class: 'auto-btn', text: '◆', title: 'automate this macro',
+    onclick: () => openLane(key),
+    oncontextmenu: (e) => { e.preventDefault(); showQuickMenu(key, e.clientX, e.clientY); } });
+  const mapBtn = el('button', { class: 'macro-map', text: 'M', title: 'map mode — then click a param',
+    onclick: () => toggleMapMode(rack.id, j) });
+  const cell = el('div', { class: 'macro-cell' }, name, slider,
+    el('div', { class: 'macro-foot' }, led, mapBtn, value));
+  rackCells.push({ rackId: rack.id, macroIdx: j, key, slider, value, led, mapBtn });
+  return cell;
+}
+
+function refreshRacks() {
+  const p = params();
+  for (const c of rackCells) {
+    const v = p[c.key] === undefined ? 0 : p[c.key];
+    if (!c.slider._held) c.slider.value = v;
+    c.value.textContent = (+v).toFixed(2);
+    const s = laneStateOf(c.key);
+    c.led.classList.toggle('lane-on', s === 'on');
+    c.led.classList.toggle('lane-off', s === 'off');
+    const active = state.mapping && state.mapping.rackId === c.rackId && state.mapping.macroIdx === c.macroIdx;
+    c.mapBtn.classList.toggle('active', !!active);
+  }
   if (signalOpen) refreshSignalMapping();
 }
 
-function rebuildMacroEditor() {
-  // TODO Phase 3: render the open rack's mapping editor (state.editRack).
-}
-
-buildMacroRack();
+buildRacksArea();
 
 // R11 terminology pass: context mode is now binary — start (no project, the
 // Audio drop / source-preview surface) vs edit (a project is loaded, the
@@ -892,7 +976,7 @@ function applyPack(packId) {
   state.params = { ...defaultParams(), ...getPack(packId).overrides };
   syncChainToParams();
   panel.rebuild();
-  refreshMacroRack();
+  refreshRacks();
   renderer.resetFeedback();
   if (state.bank) state.bank.setResponse(responseOf(params()));
   autosaveAutomation();
@@ -1035,7 +1119,7 @@ function openLane(key) {
   panel.highlight(key);
   renderLaneChips();
   updateReenable();
-  refreshMacroRack();
+  refreshRacks();
 }
 
 function closeLane() {
@@ -1525,6 +1609,10 @@ function showLaneMenu(cx, cy) {
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && state.mapping !== null) {
     exitMapMode();
+    return;
+  }
+  if (e.code === 'Escape' && state.assign != null) {
+    exitAssignMode();
     return;
   }
   if (e.code === 'Escape' && state.lane) closeLane();
@@ -2154,7 +2242,7 @@ async function loadProject(meta) {
   applyTempoUI();
   panel.focusMode = state.focus;
   panel.rebuild();
-  buildMacroRack();
+  buildRacksArea();
   resetHistory();
 
   timeline.setBank(state.bank);
@@ -2420,7 +2508,7 @@ function restoreSnapshot(i) {
   applyTempoUI();
   panel.focusMode = state.focus;
   panel.rebuild();
-  buildMacroRack();
+  buildRacksArea();
   applyMode();
   if (followCheckbox) followCheckbox.checked = state.followStructure;
   timeline.draw();
@@ -2736,7 +2824,7 @@ function applyPreset(p) {
   state.racks = Array.isArray(p.racks) ? sanitizeRacks(p.racks) : [];
   state.editRack = null;
   exitMapMode();
-  buildMacroRack();
+  buildRacksArea();
   syncChainToParams();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
   applyTempoUI();
