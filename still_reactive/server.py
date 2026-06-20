@@ -185,6 +185,28 @@ async def remove_preset(slug: str):
     return {"deleted": slug}
 
 
+# ----------------------------------------------------------------- racks
+
+@app.get("/api/racks")
+async def get_racks():
+    return await run_in_threadpool(store.list_racks)
+
+
+@app.post("/api/racks")
+async def post_rack(payload: dict):
+    if "macros" not in payload:
+        raise HTTPException(400, "Rack payload must include macros.")
+    return await run_in_threadpool(store.save_rack, payload)
+
+
+@app.delete("/api/racks/{slug}")
+async def remove_rack(slug: str):
+    ok = await run_in_threadpool(store.delete_rack, slug)
+    if not ok:
+        raise HTTPException(404, "Rack not found")
+    return {"ok": True}
+
+
 # ----------------------------------------------------------------- exports
 
 @app.get("/api/exports")
