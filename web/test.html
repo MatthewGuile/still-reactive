@@ -798,7 +798,7 @@ async function main() {
     const r = W.__racks.autoRack();
     step('autoRack creates a quartet rack (4 macros named Energy..Colour)',
       W.__racks.state.racks.length === before + 1 && r.macros.length === 4
-      && r.macros[0].name === 'Energy', r.macros.map((m) => m.name).join(','));
+      && r.macros.map((m) => m.name).join(',') === 'Energy,Motion,Texture,Colour', r.macros.map((m) => m.name).join(','));
     W.__racks.deleteRack(r.id);
   }
 

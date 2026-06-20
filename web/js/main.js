@@ -759,7 +759,7 @@ function firstMacroKey() {
 }
 
 // R5-P5: Follow song structure. Writes a visible, editable lane on the
-// Energy macro (macro1) that ramps with each section's mean loudness —
+// Energy macro (rack macro 1) that ramps with each section's mean loudness —
 // builds lift, drops hit — using detected sections, refined by user
 // markers when present. Honest: it's an ordinary lane, not hidden magic.
 function sectionBoundaries() {
@@ -815,7 +815,7 @@ function setFollowStructure(on) {
     commitHistory();
     const n = sectionBoundaries().length;
     toast(n > 1
-      ? `Follow structure on — Energy ramps across ${n} sections (edit the macro 1 lane to customise)`
+      ? `Follow structure on — Energy ramps across ${n} sections (edit the Energy macro lane to customise)`
       : 'Follow structure on, but no sections detected — add markers to shape the build');
   } else {
     const k = firstMacroKey(); if (k) automation.clear(k);
