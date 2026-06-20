@@ -133,6 +133,21 @@ function renameRack(id, name) {
   autosaveAutomation();
 }
 
+function addDeviceToRack(rackId, deviceId) {
+  for (const r of state.racks) r.deviceIds = r.deviceIds.filter((d) => d !== deviceId);
+  const r = state.racks.find((x) => x.id === rackId);
+  if (!r) return;
+  if (!state.chain.includes(deviceId)) addDevice(deviceId);
+  r.deviceIds.push(deviceId);
+  buildRacksArea(); panel.refresh(); autosaveAutomation(); commitHistory();
+}
+function removeDeviceFromRack(rackId, deviceId) {
+  const r = state.racks.find((x) => x.id === rackId);
+  if (!r) return;
+  r.deviceIds = r.deviceIds.filter((d) => d !== deviceId);
+  buildRacksArea(); panel.refresh(); autosaveAutomation(); commitHistory();
+}
+
 const tempoMap = new TempoMap();
 
 // Arrangement: loop region + user markers, beats-domain (glued to the grid
@@ -3092,3 +3107,5 @@ window.__rebuild = {
 // Task 3.1 test hook: rack CRUD. Later tasks Object.assign() their own fns.
 // ADDITIVE ONLY — do not reference functions that don't exist yet (Tasks 3.2+).
 window.__racks = { createRack, deleteRack, renameRack, state };
+// Task 3.2: device membership ops.
+Object.assign(window.__racks, { addDeviceToRack, removeDeviceFromRack });

@@ -626,6 +626,17 @@ async function main() {
     W.__racks.deleteRack(r2.id);
   }
 
+  // Task 3.2 -- device membership ops: a device belongs to at most one rack
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const a = W.__racks.createRack('A'); const b = W.__racks.createRack('B');
+    W.__racks.addDeviceToRack(a.id, 'bloom');
+    W.__racks.addDeviceToRack(b.id, 'bloom'); // must move, not duplicate
+    step('a device belongs to at most one rack',
+      a.deviceIds.includes('bloom') === false && b.deviceIds.includes('bloom') === true);
+    W.__racks.deleteRack(a.id); W.__racks.deleteRack(b.id);
+  }
+
   // 3c4 -- rack-aware applyMacros: macro value keyed by rack id
   {
     const racks = [{ id: 'rk1', name: 'R', deviceIds: ['bloom'],
