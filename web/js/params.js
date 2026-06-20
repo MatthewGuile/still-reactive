@@ -707,6 +707,43 @@ export function applyMacros(p, racks) {
   return out || p;
 }
 
+// Serialize a live rack instance to a portable saved rack. Mapped params are
+// macro-driven, so they are omitted from `params`; the macro's live value is
+// captured into `value`. `unmappedKeysFor` are the device params to snapshot.
+export function rackToSaved(rack, p) {
+  const mapped = new Set();
+  for (const m of rack.macros) for (const mm of m.mappings) mapped.add(mm.key);
+  const idx = paramIndex();
+  const params = {};
+  for (const did of rack.deviceIds) {
+    for (const k of Object.keys(idx)) {
+      if (idx[k].group === did && !mapped.has(k) && p[k] !== undefined
+          && idx[k].type !== 'mod') params[k] = p[k];
+    }
+  }
+  return {
+    name: rack.name, deviceIds: [...rack.deviceIds],
+    params,
+    macros: rack.macros.map((m, j) => ({
+      name: m.name, value: p[rackMacroKey(rack.id, j + 1)] ?? 0,
+      mappings: m.mappings.map((mm) => ({ ...mm })),
+    })),
+  };
+}
+
+// Apply a saved rack onto a {chain, params, racks} snapshot (pure). Caller
+// assigns the new id to avoid collisions. Returns a new snapshot.
+export function applyRackToState(saved, snap, newId) {
+  const id = newId || `rk${(snap.racks.length || 0) + 1}`;
+  const params = { ...snap.params, ...migrateLegacyParams(saved.params || {}) };
+  const chain = [...snap.chain];
+  for (const did of saved.deviceIds || []) if (!chain.includes(did)) chain.push(did);
+  const macros = (saved.macros || []).map((m) => ({ name: m.name, mappings: (m.mappings || []).map((mm) => ({ ...mm })) }));
+  macros.forEach((m, j) => { params[rackMacroKey(id, j + 1)] = (saved.macros[j].value ?? 0); });
+  const rack = { id, name: saved.name || 'Rack', deviceIds: [...(saved.deviceIds || [])], macros };
+  return { chain, params, racks: [...snap.racks, rack] };
+}
+
 // ------------------------------------------------- intensity resolution
 
 // Per-device Mix (`<prefix>Mix`) scales these keys toward zero.

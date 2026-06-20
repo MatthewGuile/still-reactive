@@ -212,6 +212,24 @@ async function main() {
     && MACRO_SLOTS === 8,
     `${rackMacroKey('rk1', 1)} / slots=${MACRO_SLOTS}`);
 
+  // Task 4.3 -- rackToSaved + applyRackToState pure transforms
+  {
+    const { rackToSaved, applyRackToState, defaultParams: dp2, rackMacroKey: rmk2 } = await import('./js/params.js');
+    const rack = { id: 'rk1', name: 'R', deviceIds: ['bloom'],
+      macros: [{ name: 'Glow', mappings: [{ key: 'bloomAmount', min: 0, max: 0.8 }] }] };
+    const p = { ...dp2(), 'rk1.m1': 0.4, bloomThreshold: 0.5, bloomAmount: 0.32 };
+    const saved = rackToSaved(rack, p);
+    step('rackToSaved: captures macro default value, omits mapped param from params',
+      saved.macros[0].value === 0.4 && saved.params.bloomAmount === undefined
+      && saved.params.bloomThreshold === 0.5, JSON.stringify(saved));
+    // apply onto a fresh project
+    const res = applyRackToState(saved, { chain: [], params: dp2(), racks: [] });
+    step('applyRackToState: adds device, seeds macro value, installs mapping',
+      res.chain.includes('bloom')
+      && res.racks[0].macros[0].mappings[0].key === 'bloomAmount'
+      && res.params[rmk2(res.racks[0].id, 1)] === 0.4, JSON.stringify(res.racks[0]));
+  }
+
   const { AutomationSet } = await import('./js/automation.js');
   const captureFrame = (p) => {
     renderer.resetFeedback();
