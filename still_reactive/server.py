@@ -194,8 +194,19 @@ async def get_racks():
 
 @app.post("/api/racks")
 async def post_rack(payload: dict):
-    if "macros" not in payload:
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Rack payload must be an object.")
+    if not isinstance(payload.get("macros"), list):
         raise HTTPException(400, "Rack payload must include macros.")
+    if "deviceIds" in payload and not isinstance(payload.get("deviceIds"), list):
+        raise HTTPException(400, "Rack payload deviceIds must be a list.")
+    if "params" in payload and not isinstance(payload.get("params"), dict):
+        raise HTTPException(400, "Rack payload params must be an object.")
+    for macro in payload["macros"]:
+        if not isinstance(macro, dict):
+            raise HTTPException(400, "Rack macros must be objects.")
+        if "mappings" in macro and not isinstance(macro.get("mappings"), list):
+            raise HTTPException(400, "Rack macro mappings must be a list.")
     return await run_in_threadpool(store.save_rack, payload)
 
 

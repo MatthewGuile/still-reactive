@@ -123,6 +123,9 @@ async function main() {
     !!idoc.querySelector('#macroRack .macro-empty'));
   step('Racks area present with + Rack control',
     !!idoc.querySelector('#macroRack .rack-add') || !!idoc.querySelector('[data-add-rack]'));
+  step('Racks area exposes Load rack, not Auto rack',
+    !![...idoc.querySelectorAll('#macroRack button')].find((b) => b.textContent.trim() === 'Load rack')
+      && ![...idoc.querySelectorAll('#macroRack button')].find((b) => /Auto rack/i.test(b.textContent)));
   // Task 4.4: saved-racks library section + parked preset UI hidden.
   step('Racks library section present', !!idoc.querySelector('#rackLibrary'));
   step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
@@ -226,12 +229,24 @@ async function main() {
     step('rackToSaved: captures macro default value, omits mapped param from params',
       saved.macros[0].value === 0.4 && saved.params.bloomAmount === undefined
       && saved.params.bloomThreshold === 0.5, JSON.stringify(saved));
+    step('rackToSaved: mapped devices are included in the saved rack',
+      saved.deviceIds.includes('bloom'), JSON.stringify(saved.deviceIds));
     // apply onto a fresh project
     const res = applyRackToState(saved, { chain: [], params: dp2(), racks: [] });
     step('applyRackToState: adds device, seeds macro value, installs mapping',
       res.chain.includes('bloom')
       && res.racks[0].macros[0].mappings[0].key === 'bloomAmount'
       && res.params[rmk2(res.racks[0].id, 1)] === 0.4, JSON.stringify(res.racks[0]));
+    const existing = { id: 'rkOld', name: 'Old', deviceIds: ['bloom'],
+      macros: [{ name: 'OldMacro', mappings: [{ key: 'bloomAmount', min: 0, max: 1.5 }] }] };
+    const moved = applyRackToState(saved, { chain: ['bloom'], params: dp2(), racks: [existing] }, 'rkNew');
+    step('applyRackToState: applying a rack evicts previous device and param owners',
+      moved.racks[0].deviceIds.includes('bloom') === false
+      && moved.racks[0].macros[0].mappings.length === 0
+      && moved.racks[1].id === 'rkNew'
+      && moved.racks[1].deviceIds.includes('bloom')
+      && moved.racks[1].macros[0].mappings[0].key === 'bloomAmount',
+      JSON.stringify(moved.racks));
   }
 
   const { AutomationSet } = await import('./js/automation.js');
@@ -649,6 +664,20 @@ async function main() {
     W.__racks.deleteRack(r2.id);
   }
 
+  // Rack cap: projects are limited to four rack cards.
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const idoc = document.getElementById('appFrame').contentDocument;
+    const made = [];
+    for (let i = 0; i < 4; i++) made.push(W.__racks.createRack(`Cap ${i + 1}`));
+    const fifth = W.__racks.createRack('Too many');
+    step('createRack enforces the 4-rack project limit',
+      made.every(Boolean) && fifth === null && W.__racks.state.racks.length === 4
+      && !idoc.querySelector('[data-add-rack]'),
+      `count=${W.__racks.state.racks.length}`);
+    for (const r of made) W.__racks.deleteRack(r.id);
+  }
+
   // Task 3.2 -- device membership ops: a device belongs to at most one rack
   {
     const W = document.getElementById('appFrame').contentWindow;
@@ -657,6 +686,9 @@ async function main() {
     W.__racks.addDeviceToRack(b.id, 'bloom'); // must move, not duplicate
     step('a device belongs to at most one rack',
       a.deviceIds.includes('bloom') === false && b.deviceIds.includes('bloom') === true);
+    const kept = W.__racks.addDeviceToRack('missing-rack', 'bloom') === false
+      && b.deviceIds.includes('bloom');
+    step('addDeviceToRack: missing target does not evict existing owner', kept);
     W.__racks.deleteRack(a.id); W.__racks.deleteRack(b.id);
   }
 
@@ -669,6 +701,8 @@ async function main() {
       r.macros[0].mappings.length === 1
       && r.macros[0].mappings[0].key === 'bloomAmount'
       && r.macros[0].mappings[0].min === 0 && r.macros[0].mappings[0].max === 1.5, JSON.stringify(r.macros[0].mappings));
+    step('mapParamToMacro: mapping a param claims its device for the rack',
+      r.deviceIds.includes('bloom'), JSON.stringify(r.deviceIds));
     // re-map the SAME param to the SAME macro → must not duplicate
     W.__racks.mapParamToMacro(r.id, 0, 'bloomAmount'); // same macro: no dup
     step('no duplicate mapping on the same macro', r.macros[0].mappings.length === 1);
@@ -682,6 +716,36 @@ async function main() {
       && r2.macros[0].mappings[0].key === 'bloomAmount',
       `r1=${r.macros[0].mappings.length} r2=${r2.macros[0].mappings.length}`);
     W.__racks.deleteRack(r2.id);
+    W.__racks.deleteRack(r.id);
+  }
+
+  // Full rack UI: the add-macro control disappears at the macro slot limit.
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const idoc = document.getElementById('appFrame').contentDocument;
+    const r = W.__racks.createRack('Full');
+    for (let i = 0; i < 20; i++) {
+      const btn = idoc.querySelector(`[data-rack-id="${r.id}"] [data-add-macro]`);
+      if (!btn) break;
+      btn.click();
+      await sleep(0);
+    }
+    step('+ macro button hides when the rack is full',
+      r.macros.length === MACRO_SLOTS
+      && !idoc.querySelector(`[data-rack-id="${r.id}"] [data-add-macro]`),
+      `macros=${r.macros.length}`);
+    W.__racks.deleteRack(r.id);
+  }
+
+  // Final review fix -- removing a rack device clears its mappings too
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const r = W.__racks.createRack('Detach');
+    W.__racks.mapParamToMacro(r.id, 0, 'warpAmount');
+    W.__racks.removeDeviceFromRack(r.id, 'warp');
+    step('removeDeviceFromRack: drops mappings owned by that device',
+      !r.deviceIds.includes('warp') && r.macros[0].mappings.every((mm) => mm.key !== 'warpAmount'),
+      JSON.stringify(r));
     W.__racks.deleteRack(r.id);
   }
 
@@ -755,7 +819,8 @@ async function main() {
     quartet.map((m) => `${m.name}=${m.mappings.length}`).join(' '));
   step('quartet: knobs start at the current look',
     Math.abs(texKnob.value - 0.37) < 0.011    // grain 0.2/0.55, ca 0.15/0.4
-      && Math.abs(energyKnob.value - 0.63) < 0.011, // audReact 1/1.6
+      && energyKnob.value > 0.85
+      && energyKnob.mappings.some((mm) => mm.key.endsWith('Mix')),
     `Texture=${texKnob.value} Energy=${energyKnob.value}`);
   step('device More… disclosure present (adv folded)',
     idoc.querySelectorAll('.more-btn').length >= 2
@@ -820,8 +885,17 @@ async function main() {
     const before = W.__racks.state.racks.length;
     const r = W.__racks.autoRack();
     step('autoRack creates a quartet rack (4 macros named Energy..Colour)',
-      W.__racks.state.racks.length === before + 1 && r.macros.length === 4
+    W.__racks.state.racks.length === before + 1 && r.macros.length === 4
       && r.macros.map((m) => m.name).join(',') === 'Energy,Motion,Texture,Colour', r.macros.map((m) => m.name).join(','));
+    const idoc = document.getElementById('appFrame').contentDocument;
+    const rows = idoc.querySelectorAll(`[data-rack-id="${r.id}"] .macro-mappings .map-row`).length;
+    const summaries = idoc.querySelectorAll(`[data-rack-id="${r.id}"] .macro-map-summary`).length;
+    step('autoRack exposes per-macro mapping summaries and details',
+      rows === r.macros.reduce((n, m) => n + m.mappings.length, 0)
+      && summaries === r.macros.length
+      && r.macros[0].mappings.some((mm) => mm.key === 'audReact')
+      && r.macros[1].mappings.length > 0,
+      `summaries=${summaries} rows=${rows}`);
     W.__racks.deleteRack(r.id);
   }
 

@@ -188,6 +188,11 @@ select, input[type="text"], input:not([type]), #presetName {
 }
 .list li:hover { background: var(--panel-2); }
 .list li a { color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
+.library-focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
 .mini-del {
   margin-left: auto;
   background: none;
@@ -721,39 +726,94 @@ input[type="range"].driven::-moz-range-thumb {
   gap: 6px;
 }
 .rack-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.rack-macro-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
-/* Racks v1: one card per rack instance — header (name + Save/delete), the
-   macro-knob grid, then the device-membership chips. */
+/* Racks v1: one compact rack section with stacked macro controls and
+   progressive disclosure for dense mapping/device metadata. */
 .rack-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 7px 8px 8px;
+  border-radius: 8px;
+  padding: 8px;
   margin-bottom: 8px;
 }
 .rack-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+.rack-title-stack {
+  min-width: 0;
+  margin-right: auto;
 }
 .rack-title {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-right: auto;
   cursor: text;
 }
+.rack-meta {
+  color: var(--text-dim);
+  font-size: 10px;
+  margin-top: 2px;
+}
 .rack-card-head .ctl-mini { margin-left: 0; }
+.rack-add-macro {
+  width: 100%;
+  margin-top: 6px;
+}
 .rack-devices {
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 7px;
+}
+.rack-devices-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  list-style: none;
+}
+.rack-devices-summary::-webkit-details-marker { display: none; }
+.rack-devices-summary::before {
+  content: '▸';
+  color: var(--text-dim);
+}
+.rack-devices[open] > .rack-devices-summary::before { content: '▾'; }
+.rack-dev-count,
+.macro-map-count {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 9px;
+  min-width: 16px;
+  padding: 1px 5px;
+  text-align: center;
+}
+.macro-map-title {
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rack-devices-list {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: 7px;
+  margin-top: 5px;
 }
 .rack-dev-chip {
   background: var(--panel-2);
@@ -765,6 +825,11 @@ input[type="range"].driven::-moz-range-thumb {
   padding: 3px 7px;
   cursor: pointer;
 }
+.rack-empty-inline {
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1;
+}
 .rack-dev-chip:hover {
   border-color: var(--accent);
   color: var(--accent);
@@ -772,15 +837,22 @@ input[type="range"].driven::-moz-range-thumb {
 .macro-cell {
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 5px 6px 4px;
+  border-radius: 6px;
+  padding: 7px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+.macro-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 .macro-name {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text);
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -789,11 +861,11 @@ input[type="range"].driven::-moz-range-thumb {
 .macro-foot {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 .macro-value {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -803,11 +875,10 @@ input[type="range"].driven::-moz-range-thumb {
   border-radius: 4px;
   color: var(--text-dim);
   font-size: 10px;
-  width: 16px;
-  height: 14px;
+  height: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 0;
+  padding: 0 6px;
 }
 .macro-map:hover { border-color: var(--accent); color: var(--accent); }
 .macro-map.active {
@@ -825,13 +896,38 @@ input[type="range"].driven::-moz-range-thumb {
 }
 .macro-badge.has-maps { color: var(--accent); }
 
-.macro-mappings { margin-top: 8px; }
+.macro-mappings {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 5px;
+}
+.macro-map-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  list-style: none;
+  min-height: 18px;
+}
+.macro-map-summary::-webkit-details-marker { display: none; }
+.macro-map-summary::after {
+  content: '▸';
+  color: var(--text-dim);
+}
+.macro-mappings[open] > .macro-map-summary::after { content: '▾'; }
+.macro-map-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .map-row {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin: 3px 0;
-  font-size: 11px;
+  margin: 4px 0 0;
+  font-size: 10px;
 }
 .map-label {
   flex: 1;
@@ -840,14 +936,11 @@ input[type="range"].driven::-moz-range-thumb {
   white-space: nowrap;
   color: var(--text-dim);
 }
-.map-num {
-  width: 52px;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-size: 11px;
+.map-range {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
 }
 
 /* map mode: rows become click targets; param inputs are inert */

@@ -586,10 +586,12 @@ export function buildQuartet(chainIds, current = {}) {
     for (const g of PARAM_GROUPS) {
       if (!chain.has(g.id)) continue;
       for (const p of g.params) {
-        if (p.axis !== axis || !p.sweet) continue;
+        const energyMix = axis === 'energy' && p.key.endsWith('Mix');
+        if (!energyMix && (p.axis !== axis || !p.sweet)) continue;
         const dry = p.dry === undefined ? Math.min(Math.max(0, p.min), p.max) : p.dry;
         const w = p.weight === undefined ? 1 : p.weight;
-        const hi = dry + (p.sweet[1] - dry) * w;
+        const target = energyMix ? (p.def === undefined ? p.max : p.def) : p.sweet[1];
+        const hi = dry + (target - dry) * w;
         if (hi - dry < (p.step || 0.01)) continue;
         const cur = current[p.key] === undefined ? p.def : current[p.key];
         pos += Math.min(Math.max((cur - dry) / (hi - dry), 0), 1);
@@ -704,15 +706,20 @@ export function rackToSaved(rack, p) {
   const mapped = new Set();
   for (const m of rack.macros) for (const mm of m.mappings) mapped.add(mm.key);
   const idx = paramIndex();
+  const deviceIds = new Set((Array.isArray(rack.deviceIds) ? rack.deviceIds : []).filter((did) => groupById(did)));
+  for (const key of mapped) {
+    const group = idx[key] && idx[key].group;
+    if (groupById(group)) deviceIds.add(group);
+  }
   const params = {};
-  for (const did of rack.deviceIds) {
+  for (const did of deviceIds) {
     for (const k of Object.keys(idx)) {
       if (idx[k].group === did && !mapped.has(k) && p[k] !== undefined
           && idx[k].type !== 'mod') params[k] = p[k];
     }
   }
   return {
-    name: rack.name, deviceIds: [...rack.deviceIds],
+    name: rack.name, deviceIds: [...deviceIds],
     params,
     macros: rack.macros.map((m, j) => ({
       name: m.name, value: p[rackMacroKey(rack.id, j + 1)] ?? 0,
@@ -726,12 +733,36 @@ export function rackToSaved(rack, p) {
 export function applyRackToState(saved, snap, newId) {
   const id = newId || `rk${(snap.racks.length || 0) + 1}`;
   const params = { ...snap.params, ...migrateLegacyParams(saved.params || {}) };
+  const idx = paramIndex();
+  const savedMacros = (Array.isArray(saved.macros) ? saved.macros : []).slice(0, MACRO_SLOTS);
+  const mappedKeys = new Set();
+  const deviceIds = new Set((Array.isArray(saved.deviceIds) ? saved.deviceIds : []).filter((did) => groupById(did)));
+  const macros = savedMacros.map((m) => ({
+    name: String((m && m.name) || 'Macro').slice(0, 24),
+    mappings: Array.isArray(m && m.mappings)
+      ? m.mappings
+        .filter((mm) => mm && idx[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max))
+        .map((mm) => {
+          mappedKeys.add(mm.key);
+          const group = idx[mm.key].group;
+          if (groupById(group)) deviceIds.add(group);
+          return { ...mm };
+        })
+      : [],
+  }));
   const chain = [...snap.chain];
-  for (const did of saved.deviceIds || []) if (!chain.includes(did)) chain.push(did);
-  const macros = (saved.macros || []).map((m) => ({ name: m.name, mappings: (m.mappings || []).map((mm) => ({ ...mm })) }));
-  macros.forEach((m, j) => { params[rackMacroKey(id, j + 1)] = (saved.macros[j].value ?? 0); });
-  const rack = { id, name: saved.name || 'Rack', deviceIds: [...(saved.deviceIds || [])], macros };
-  return { chain, params, racks: [...snap.racks, rack] };
+  for (const did of deviceIds) if (!chain.includes(did)) chain.push(did);
+  macros.forEach((m, j) => { params[rackMacroKey(id, j + 1)] = (savedMacros[j]?.value ?? 0); });
+  const existing = (snap.racks || []).map((r) => ({
+    ...r,
+    deviceIds: (r.deviceIds || []).filter((did) => !deviceIds.has(did)),
+    macros: (r.macros || []).map((m) => ({
+      ...m,
+      mappings: (m.mappings || []).filter((mm) => !mappedKeys.has(mm.key)),
+    })),
+  }));
+  const rack = { id, name: saved.name || 'Rack', deviceIds: [...deviceIds], macros };
+  return { chain, params, racks: [...existing, rack] };
 }
 
 // ------------------------------------------------- intensity resolution

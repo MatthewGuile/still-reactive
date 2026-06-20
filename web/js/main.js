@@ -18,6 +18,7 @@ import { TempoMap, AutomationSet } from './automation.js';
 
 const ASPECTS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1 };
 const PREVIEW_CAP = 1280; // max preview render dimension; export is full-res
+const MAX_RACKS = 4;
 
 const state = {
   project: null,
@@ -81,6 +82,42 @@ function clearRackLanes(rack) {
   }
 }
 
+function rackOwnsLane(rack, key) {
+  return !!(rack && key && (rack.macros || []).some((m, j) => key === rackMacroKey(rack.id, j + 1)));
+}
+
+function closeLaneIfMissingFromSchema() {
+  if (state.lane && !SCHEMA_INDEX[state.lane]) closeLane();
+}
+
+function removeMappingsForDevice(rack, deviceId) {
+  let changed = false;
+  for (const mac of rack.macros || []) {
+    const before = mac.mappings ? mac.mappings.length : 0;
+    mac.mappings = (mac.mappings || []).filter((mm) => (SCHEMA_INDEX[mm.key] || {}).group !== deviceId);
+    changed = changed || mac.mappings.length !== before;
+  }
+  return changed;
+}
+
+function claimDeviceForRack(rack, deviceId) {
+  if (!rack || !groupById(deviceId)) return false;
+  let changed = false;
+  for (const other of state.racks) {
+    if (other.id === rack.id) continue;
+    const before = other.deviceIds.length;
+    other.deviceIds = other.deviceIds.filter((d) => d !== deviceId);
+    changed = changed || other.deviceIds.length !== before;
+    changed = removeMappingsForDevice(other, deviceId) || changed;
+  }
+  if (!state.chain.includes(deviceId)) addDevice(deviceId);
+  if (!rack.deviceIds.includes(deviceId)) {
+    rack.deviceIds.push(deviceId);
+    changed = true;
+  }
+  return changed;
+}
+
 // ------------------------------------------------- rack CRUD (Task 3.1)
 
 function nextRackId() {
@@ -93,6 +130,10 @@ function nextRackId() {
 }
 
 function createRack(name = 'Rack') {
+  if (state.racks.length >= MAX_RACKS) {
+    toast(`A project can have up to ${MAX_RACKS} racks.`, 'error');
+    return null;
+  }
   const rack = { id: nextRackId(), name: name.slice(0, 24), deviceIds: [],
     macros: [{ name: 'Macro 1', mappings: [] }] };
   state.racks.push(rack);
@@ -108,14 +149,13 @@ function deleteRack(id) {
   const i = state.racks.findIndex((r) => r.id === id);
   if (i < 0) return;
   const rack = state.racks[i];
+  if (rackOwnsLane(rack, state.lane)) closeLane();
   clearRackLanes(rack);
   for (let j = 0; j < rack.macros.length; j++) delete params()[rackMacroKey(rack.id, j + 1)];
   state.racks.splice(i, 1);
   if (state.editRack === id) state.editRack = null;
-  // exitMapMode exists (line ~611); guard in case future refactor removes it
-  if (state.mapping && state.mapping.rackId === id) {
-    if (typeof exitMapMode === 'function') exitMapMode();
-  }
+  if (state.mapping && state.mapping.rackId === id) exitMapMode();
+  if (state.assign === id) exitAssignMode();
   rebuildParamIndex();
   buildRacksArea();
   panel.refreshAutoButtons();
@@ -136,17 +176,17 @@ function renameRack(id, name) {
 }
 
 function addDeviceToRack(rackId, deviceId) {
-  for (const r of state.racks) r.deviceIds = r.deviceIds.filter((d) => d !== deviceId);
   const r = state.racks.find((x) => x.id === rackId);
-  if (!r) return;
-  if (!state.chain.includes(deviceId)) addDevice(deviceId);
-  r.deviceIds.push(deviceId);
+  if (!r || !groupById(deviceId)) return false;
+  claimDeviceForRack(r, deviceId);
   buildRacksArea(); panel.refresh(); autosaveAutomation(); commitHistory();
+  return true;
 }
 function removeDeviceFromRack(rackId, deviceId) {
   const r = state.racks.find((x) => x.id === rackId);
   if (!r) return;
   r.deviceIds = r.deviceIds.filter((d) => d !== deviceId);
+  removeMappingsForDevice(r, deviceId);
   buildRacksArea(); panel.refresh(); autosaveAutomation(); commitHistory();
 }
 
@@ -246,6 +286,7 @@ function restoreHistory(snap) {
   }
   if (Array.isArray(s.chain)) state.chain = s.chain.slice();
   if (Array.isArray(s.racks)) { state.racks = s.racks; rebuildParamIndex(); }
+  closeLaneIfMissingFromSchema();
   panel.rebuild();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
   syncTransportLoop();
@@ -537,6 +578,13 @@ function removeDevice(id) {
   if (!group || group.pinned) return;
   if (state.lane && (SCHEMA_INDEX[state.lane] || {}).group === id) closeLane();
   state.chain = state.chain.filter((g) => g !== id);
+  let touchedRacks = false;
+  for (const rack of state.racks) {
+    const before = rack.deviceIds.length;
+    rack.deviceIds = rack.deviceIds.filter((d) => d !== id);
+    touchedRacks = touchedRacks || rack.deviceIds.length !== before;
+    touchedRacks = removeMappingsForDevice(rack, id) || touchedRacks;
+  }
   const defaults = defaultParams();
   const slot = state.params;
   for (const key of deviceKeys(group)) {
@@ -553,11 +601,12 @@ function removeDevice(id) {
     }
   }
   panel.rebuild();
+  if (touchedRacks) buildRacksArea();
   renderLaneChips();
   updateReenable();
   timeline.draw();
   autosaveAutomation();
-  if (hadLanes) commitHistory();
+  commitHistory();
   toast(`Removed ${group.label}${hadLanes ? ' (and its automation lanes)' : ''}`);
 }
 
@@ -678,10 +727,10 @@ let rackCells = [];   // [{rackId, macroIdx, key, slider, value, led, mapBtn}]
 
 function sanitizeRacks(arr) {
   if (!Array.isArray(arr)) return [];
-  return arr.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.macros)).map((r) => ({
+  return arr.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.macros)).slice(0, MAX_RACKS).map((r) => ({
     id: r.id, name: String(r.name || 'Rack').slice(0, 24),
     deviceIds: Array.isArray(r.deviceIds) ? r.deviceIds.filter((d) => groupById(d)) : [],
-    macros: r.macros.filter(Boolean).map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
+    macros: r.macros.filter(Boolean).slice(0, MACRO_SLOTS).map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
       mappings: Array.isArray(m.mappings) ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max)) : [] })),
   }));
 }
@@ -691,11 +740,12 @@ function mapParamToMacro(rackId, macroIdx, key) {
   if (!s || s.automatable === false || /^rk\d+\.m\d+$/.test(key)) {
     toast('That control cannot be macro-mapped.', 'error'); return;
   }
+  const rack = state.racks.find((x) => x.id === rackId);
+  if (!rack || !rack.macros[macroIdx]) return;
   // exclusive: a param belongs to one macro across all racks
   for (const r of state.racks)
     for (const mac of r.macros) mac.mappings = mac.mappings.filter((mm) => mm.key !== key);
-  const rack = state.racks.find((x) => x.id === rackId);
-  if (!rack || !rack.macros[macroIdx]) return;
+  claimDeviceForRack(rack, s.group);
   let lo = 0, hi = 1;
   if (s.type === 'enum') hi = s.options.length - 1;
   else if (s.type !== 'bool') { lo = s.min; hi = s.max; }
@@ -723,6 +773,10 @@ function addMacro(rackId) {
 
 function toggleMapMode(rackId, macroIdx) {
   const same = state.mapping && state.mapping.rackId === rackId && state.mapping.macroIdx === macroIdx;
+  if (!same && state.assign != null) {
+    state.assign = null;
+    paramPanelsEl.classList.remove('assign-mode');
+  }
   state.mapping = same ? null : { rackId, macroIdx };
   paramPanelsEl.classList.toggle('map-mode', state.mapping !== null);
   buildRacksArea();
@@ -749,7 +803,12 @@ paramPanelsEl.addEventListener('click', (e) => {
 // Clicking any device header (or any of its params) resolves to the device
 // group and adds it as rack membership. Toggle re-entry exits.
 function enterAssignMode(rackId) {
-  state.assign = state.assign === rackId ? null : rackId;
+  const same = state.assign === rackId;
+  if (!same && state.mapping) {
+    state.mapping = null;
+    paramPanelsEl.classList.remove('map-mode');
+  }
+  state.assign = same ? null : rackId;
   paramPanelsEl.classList.toggle('assign-mode', state.assign != null);
   buildRacksArea();
   if (state.assign != null) toast('Assign mode: click a device (or any of its params) to add it to the rack — Esc to exit');
@@ -766,12 +825,17 @@ paramPanelsEl.addEventListener('click', (e) => {
   if (!row) return;
   e.preventDefault(); e.stopPropagation();
   const s = SCHEMA_INDEX[row.getAttribute('data-key')];
-  if (s && s.group) { addDeviceToRack(state.assign, s.group); }
+  if (!s || !s.group) toast('That control is not part of a device.', 'error');
+  else if (!addDeviceToRack(state.assign, s.group)) toast('That rack no longer exists.', 'error');
   exitAssignMode();
 }, true);
 
 // Task 3.4: Build the standard quartet into a new rack in one click.
 function autoRack() {
+  if (state.racks.length >= MAX_RACKS) {
+    toast(`A project can have up to ${MAX_RACKS} racks.`, 'error');
+    return null;
+  }
   const q = buildQuartet(state.chain, params());      // [{name,value,mappings}]
   const rack = { id: nextRackId(), name: 'Auto', deviceIds: [],
     macros: q.map((m) => ({ name: m.name, mappings: m.mappings })) };
@@ -870,12 +934,13 @@ function setFollowStructure(on) {
 function buildRacksArea() {
   macroRack.textContent = '';
   rackCells = [];
+  const canAddRack = state.racks.length < MAX_RACKS;
   macroRack.append(el('div', { class: 'rack-header' },
     el('span', { text: 'RACKS' }),
-    el('button', { class: 'ctl-btn ctl-mini rack-add', 'data-add-rack': '1',
-      text: '+ Rack', onclick: () => createRack(`Rack ${state.racks.length + 1}`) }),
-    el('button', { class: 'ctl-btn ctl-mini', text: '◇ Auto rack',
-      title: 'Energy / Motion / Texture / Colour from the current chain', onclick: () => autoRack() })));
+    canAddRack ? el('button', { class: 'ctl-btn ctl-mini rack-add', 'data-add-rack': '1',
+      text: '+ Rack', onclick: () => createRack(`Rack ${state.racks.length + 1}`) }) : null,
+    canAddRack ? el('button', { class: 'ctl-btn ctl-mini', text: 'Load rack',
+      title: 'Browse saved rack presets', onclick: () => focusRackLibrary() }) : null));
   if (!state.racks.length) {
     macroRack.append(el('div', { class: 'macro-empty' },
       el('div', { class: 'macro-empty-h', text: 'No racks yet' }),
@@ -886,32 +951,65 @@ function buildRacksArea() {
 }
 
 function buildRackCard(rack) {
-  const card = el('div', { class: 'rack-card' });
+  const card = el('div', { class: 'rack-card', 'data-rack-id': rack.id });
   const title = el('div', { class: 'rack-title', text: rack.name, title: 'double-click to rename',
     ondblclick: () => { const n = prompt('Rack name', rack.name); if (n) renameRack(rack.id, n); } });
+  const meta = el('div', { class: 'rack-meta',
+    text: `${rack.macros.length}/${MACRO_SLOTS} macros · ${rack.deviceIds.length} devices` });
   const del = el('button', { class: 'mini-del', text: '×', title: 'delete rack',
     onclick: () => deleteRack(rack.id) });
   const save = el('button', { class: 'ctl-btn ctl-mini', text: 'Save', title: 'save to library',
     onclick: () => saveRack(rack.id) });
-  card.append(el('div', { class: 'rack-card-head' }, title, save, del));
-  const grid = el('div', { class: 'rack-grid' });
+  card.append(el('div', { class: 'rack-card-head' },
+    el('div', { class: 'rack-title-stack' }, title, meta),
+    save,
+    del));
+  const grid = el('div', { class: 'rack-macro-list' });
   rack.macros.forEach((m, j) => grid.append(buildMacroCell(rack, j)));
-  grid.append(el('button', { class: 'ctl-btn ctl-mini', text: '+ macro',
-    onclick: () => addMacro(rack.id) }));
   card.append(grid);
-  // device chips + assign affordance
-  const dev = el('div', { class: 'rack-devices' });
-  rack.deviceIds.forEach((d) => dev.append(el('span', { class: 'rack-dev-chip',
-    text: (groupById(d) || { label: d }).label,
-    onclick: () => removeDeviceFromRack(rack.id, d) })));
-  dev.append(el('button', { class: 'ctl-btn ctl-mini', text: '+ devices',
+  if (rack.macros.length < MACRO_SLOTS) {
+    card.append(el('button', { class: 'ctl-btn ctl-mini rack-add-macro', 'data-add-macro': rack.id,
+      text: '+ macro', onclick: () => addMacro(rack.id) }));
+  }
+  // Device membership is rack-level metadata, not per-macro ownership.
+  const devList = el('div', { class: 'rack-devices-list' });
+  if (rack.deviceIds.length) {
+    rack.deviceIds.forEach((d) => devList.append(el('button', { class: 'rack-dev-chip',
+      title: 'remove from rack',
+      text: (groupById(d) || { label: d }).label,
+      onclick: () => removeDeviceFromRack(rack.id, d) })));
+  } else {
+    devList.append(el('span', { class: 'rack-empty-inline', text: 'No devices assigned' }));
+  }
+  devList.append(el('button', { class: 'ctl-btn ctl-mini', text: '+ devices',
     onclick: () => enterAssignMode(rack.id) }));
+  const dev = el('details', { class: 'rack-devices' },
+    el('summary', { class: 'rack-devices-summary' },
+      el('span', { text: 'Devices in rack' }),
+      el('span', { class: 'rack-dev-count', text: `${rack.deviceIds.length}` })),
+    devList);
   card.append(dev);
   return card;
 }
 
+function mappingLabel(mm) {
+  const s = SCHEMA_INDEX[mm.key];
+  return s ? `${s.groupLabel} · ${s.label}` : mm.key;
+}
+
+function formatMappingValue(v) {
+  return Number.isInteger(v) ? String(v) : (+v).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function mappingPreview(mappings) {
+  if (!mappings.length) return 'No mapped parameters';
+  const labels = mappings.slice(0, 2).map(mappingLabel).join(', ');
+  return mappings.length > 2 ? `${labels}, +${mappings.length - 2}` : labels;
+}
+
 function buildMacroCell(rack, j) {
   const key = rackMacroKey(rack.id, j + 1);
+  const macro = rack.macros[j];
   const name = el('div', { class: 'macro-name', text: rack.macros[j].name, title: 'double-click to rename',
     ondblclick: () => { const n = prompt('Macro name', rack.macros[j].name);
       if (n && n.trim()) { rack.macros[j].name = n.trim().slice(0, 24); rebuildParamIndex(); buildRacksArea(); autosaveAutomation(); } } });
@@ -925,10 +1023,24 @@ function buildMacroCell(rack, j) {
   const led = el('button', { class: 'auto-btn', text: '◆', title: 'automate this macro',
     onclick: () => openLane(key),
     oncontextmenu: (e) => { e.preventDefault(); showQuickMenu(key, e.clientX, e.clientY); } });
-  const mapBtn = el('button', { class: 'macro-map', text: 'M', title: 'map mode — then click a param',
+  const mapBtn = el('button', { class: 'macro-map', text: 'Map', title: 'Map a parameter to this macro',
     onclick: () => toggleMapMode(rack.id, j) });
-  const cell = el('div', { class: 'macro-cell' }, name, slider,
-    el('div', { class: 'macro-foot' }, led, mapBtn, value));
+  const maps = el('details', { class: 'macro-mappings', 'data-macro-mappings': key },
+    el('summary', { class: 'macro-map-summary' },
+      el('span', { class: 'macro-map-count', text: `${macro.mappings.length}` }),
+      el('span', { class: 'macro-map-preview', text: mappingPreview(macro.mappings) })));
+  macro.mappings.forEach((mm, idx) => {
+    maps.append(el('div', { class: 'map-row' },
+      el('span', { class: 'map-label', title: mappingLabel(mm), text: mappingLabel(mm) }),
+      el('span', { class: 'map-range', text: `${formatMappingValue(mm.min)}-${formatMappingValue(mm.max)}` }),
+      el('button', { class: 'mini-del', text: '×', title: 'remove mapping',
+        onclick: () => removeMapping(rack.id, j, idx) })));
+  });
+  const cell = el('div', { class: 'macro-cell' },
+    el('div', { class: 'macro-head' }, name, value),
+    slider,
+    el('div', { class: 'macro-foot' }, led, mapBtn),
+    maps);
   rackCells.push({ rackId: rack.id, macroIdx: j, key, slider, value, led, mapBtn });
   return cell;
 }
@@ -1104,6 +1216,11 @@ function cycleLane(dir) {
 function openLane(key) {
   if (!state.project) {
     toast('Load a project first — automation lives on the song timeline.', 'error');
+    return;
+  }
+  if (!SCHEMA_INDEX[key]) {
+    toast('That automation target no longer exists.', 'error');
+    closeLane();
     return;
   }
   if (isMappedKey(key)) {
@@ -2233,6 +2350,7 @@ async function loadProject(meta) {
   tempoMap.offset = state.bank.beatOffset || 0;
   state.chain = defaultChain();
   state.racks = [];               // Racks v1: no default rack (Phase 3 builds UI)
+  rebuildParamIndex();
   loopRegion.startB = 0;
   loopRegion.endB = 0;
   loopRegion.on = false;
@@ -2875,15 +2993,26 @@ document.getElementById('savePresetBtn').addEventListener('click', async () => {
 function saveRack(rackId) {
   const r = state.racks.find((x) => x.id === rackId);
   if (!r) return;
-  const name = prompt('Save rack as', r.name) || r.name;
+  const name = prompt('Save rack as', r.name);
+  if (!name || !name.trim()) return;
   fetch('/api/racks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...rackToSaved(r, params()), name }),
-  }).then(() => { refreshRackLibrary(); toast(`Rack "${name}" saved`); });
+    body: JSON.stringify({ ...rackToSaved(r, params()), name: name.trim() }),
+  })
+    .then((resp) => {
+      if (!resp.ok) throw new Error('save failed');
+      refreshRackLibrary();
+      toast(`Rack "${name.trim()}" saved`);
+    })
+    .catch(() => toast('Could not save rack.', 'error'));
 }
 
 function applyRackToProject(saved) {
+  if (state.racks.length >= MAX_RACKS) {
+    toast(`A project can have up to ${MAX_RACKS} racks.`, 'error');
+    return;
+  }
   const snap = applyRackToState(
     saved,
     { chain: state.chain, params: params(), racks: state.racks },
@@ -2908,19 +3037,44 @@ async function refreshRackLibrary() {
   const list = document.getElementById('rackList');
   if (!list) return;
   list.textContent = '';
-  const racks = await fetch('/api/racks').then((r) => r.json());
+  let racks = [];
+  try {
+    const resp = await fetch('/api/racks');
+    if (!resp.ok) throw new Error('list failed');
+    racks = await resp.json();
+  } catch (e) {
+    list.append(el('li', { class: 'hint', text: 'Rack library unavailable' }));
+    return;
+  }
+  if (!racks.length) {
+    list.append(el('li', { class: 'hint', text: 'No rack presets saved yet' }));
+    return;
+  }
   for (const s of racks) {
     const li = el('li', { text: s.name, onclick: () => applyRackToProject(s) });
     li.append(el('button', {
       class: 'mini-del', text: '×', title: 'delete saved rack',
       onclick: async (e) => {
         e.stopPropagation();
-        await fetch(`/api/racks/${s.slug}`, { method: 'DELETE' });
-        refreshRackLibrary();
+        try {
+          const resp = await fetch(`/api/racks/${s.slug}`, { method: 'DELETE' });
+          if (!resp.ok) throw new Error('delete failed');
+          refreshRackLibrary();
+        } catch (err) {
+          toast('Could not delete saved rack.', 'error');
+        }
       },
     }));
     list.append(li);
   }
+}
+
+function focusRackLibrary() {
+  const section = document.getElementById('rackLibrary');
+  if (!section) return;
+  section.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  section.classList.add('library-focus');
+  setTimeout(() => section.classList.remove('library-focus'), 900);
 }
 
 async function refreshExports() {

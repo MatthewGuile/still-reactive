@@ -192,7 +192,19 @@ def main():
         assert exc.code == 404, exc.code
     print("rename + delete : ok (sibling cleaned up, 404 after delete)")
 
-    # rack round-trip (POST → GET → DELETE)
+    # rack validation + round-trip (POST → GET → DELETE)
+    bad_req = urllib.request.Request(
+        f"{BASE}/api/racks",
+        data=json.dumps({"name": "Bad Rack", "macros": "not-a-list"}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(bad_req, timeout=10)
+        raise AssertionError("invalid rack payload accepted")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400, exc.code
+
     rack = {"name": "My Rack", "deviceIds": ["bloom"],
             "params": {"bloomThreshold": 0.5},
             "macros": [{"name": "Glow", "value": 0.4,

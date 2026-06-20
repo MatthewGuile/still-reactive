@@ -66,6 +66,7 @@ def main():
         proc = subprocess.Popen(
             [
                 chrome, "--headless=new", "--window-size=1400,1000",
+                "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
                 f"--user-data-dir={profile}", "--no-first-run", "--mute-audio",
                 "--autoplay-policy=no-user-gesture-required",
                 f"http://127.0.0.1:{PORT}/test.html",
