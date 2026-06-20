@@ -7,6 +7,8 @@ look in a live WebGL preview, then export an MP4.
 It runs on your machine, stores projects locally, and does not require a cloud
 service or a frontend build step.
 
+Please note that it is still a work-in-progress tool.
+
 ## Features
 
 - Image, solid colour, gradient, pattern, or transparent canvas as the visual
@@ -46,13 +48,6 @@ The app opens at:
 ```text
 http://127.0.0.1:8765
 ```
-
-Use `--no-browser` if you want to start the server without opening a tab:
-
-```bash
-python -m still_reactive --no-browser
-```
-
 ## Basic Workflow
 
 1. Choose a base layer in the Inputs panel.
