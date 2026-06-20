@@ -791,6 +791,17 @@ async function main() {
     sLow.low > 0.3 && sLow.mid < 0.05 && sMid.low < 0.05 && sMid.mid > 0.3,
     `low@160=${sLow.low.toFixed(2)} mid@60=${sMid.mid.toFixed(2)}`);
 
+  // Task 3.4 -- autoRack: one-click quartet rack from the current chain
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const before = W.__racks.state.racks.length;
+    const r = W.__racks.autoRack();
+    step('autoRack creates a quartet rack (4 macros named Energy..Colour)',
+      W.__racks.state.racks.length === before + 1 && r.macros.length === 4
+      && r.macros[0].name === 'Energy', r.macros.map((m) => m.name).join(','));
+    W.__racks.deleteRack(r.id);
+  }
+
   // 4 — a tiny real export through the actual WebSocket + ffmpeg path,
   // using a range (start offset) like the loop-region export does
   const shortBank = { duration: 1.5, sample: (t) => bank.sample(t) };

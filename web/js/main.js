@@ -735,16 +735,27 @@ paramPanelsEl.addEventListener('click', (e) => {
 
 const QUARTET_NAMES = new Set(QUARTET.map((q) => q.name));
 
-// Replace macros 1–4 with the generated standard quartet for the current
-// chain. One-knob contract: every knob at **0 is fully dry** (its whole
-// axis silenced); knobs start at positions matching the current look, so
-// building the quartet doesn't jolt the picture. Macros 5–8 are kept
-// (minus any mappings the quartet claims — a param belongs to one macro).
-// TODO Phase 3: rebuilt against state.racks (a "quartet rack"). The old
-// global-macro implementation is parked — no live caller now the rack UI is
-// absent. `buildQuartet`/QUARTET stay imported for the Phase-3 rewrite.
-function applyQuartet() {
-  // Phase 3: build the standard quartet into a rack. No-op until the rack UI.
+// Task 3.4: Build the standard quartet into a new rack in one click.
+function autoRack() {
+  const q = buildQuartet(state.chain, params());      // [{name,value,mappings}]
+  const rack = { id: nextRackId(), name: 'Auto', deviceIds: [],
+    macros: q.map((m) => ({ name: m.name, mappings: m.mappings })) };
+  // membership = every device a mapping touches
+  const groups = new Set();
+  for (const m of q) for (const mm of m.mappings) {
+    const s = paramIndex()[mm.key]; if (s) groups.add(s.group);
+  }
+  rack.deviceIds = [...groups];
+  state.racks.push(rack);
+  q.forEach((m, j) => { params()[rackMacroKey(rack.id, j + 1)] = m.value; });
+  rebuildParamIndex(); buildRacksArea(); panel.refresh();
+  autosaveAutomation(); commitHistory();
+  return rack;
+}
+
+// Task 3.4: Key of the first rack's first macro, or null if no rack exists.
+function firstMacroKey() {
+  return state.racks[0] ? rackMacroKey(state.racks[0].id, 1) : null;
 }
 
 // R5-P5: Follow song structure. Writes a visible, editable lane on the
@@ -764,6 +775,8 @@ function sectionBoundaries() {
 
 function buildFollowStructure() {
   if (!state.bank) return;
+  const energyKey = firstMacroKey();
+  if (!energyKey) { toast('Add a rack first to follow song structure', 'error'); return; }
   const rms = state.bank.smoothed.rms;
   const fr = state.bank.frameRate;
   const dur = state.bank.duration;
@@ -780,10 +793,10 @@ function buildFollowStructure() {
   const lo = Math.min(...means);
   const hi = Math.max(...means);
   const span = hi - lo;
-  automation.clear('macro1');
+  automation.clear(energyKey);
   bnd.forEach((t0, k) => {
     const v = span < 1e-4 ? 0.6 : 0.15 + 0.85 * (means[k] - lo) / span;
-    automation.addPoint('macro1', Math.max(tempoMap.beatsAt(t0), 0), v);
+    automation.addPoint(energyKey, Math.max(tempoMap.beatsAt(t0), 0), v);
   });
   panel.refreshAutoButtons();
   renderLaneChips();
@@ -805,7 +818,7 @@ function setFollowStructure(on) {
       ? `Follow structure on — Energy ramps across ${n} sections (edit the macro 1 lane to customise)`
       : 'Follow structure on, but no sections detected — add markers to shape the build');
   } else {
-    automation.clear('macro1');
+    const k = firstMacroKey(); if (k) automation.clear(k);
     panel.refreshAutoButtons();
     renderLaneChips();
     updateReenable();
@@ -3153,3 +3166,5 @@ window.__racks = { createRack, deleteRack, renameRack, state };
 Object.assign(window.__racks, { addDeviceToRack, removeDeviceFromRack });
 // Task 3.3: rack-scoped mapping.
 Object.assign(window.__racks, { mapParamToMacro });
+// Task 3.4: auto rack.
+Object.assign(window.__racks, { autoRack });
