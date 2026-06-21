@@ -29,6 +29,7 @@ from still_reactive.server import app  # noqa: E402
 
 PORT = 8799
 BASE = f"http://127.0.0.1:{PORT}"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 def get(path: str):
@@ -191,6 +192,45 @@ def main():
     except urllib.error.HTTPError as exc:
         assert exc.code == 404, exc.code
     print("rename + delete : ok (sibling cleaned up, 404 after delete)")
+
+    # replace audio: new song bounce, same visual build -> content-addressed
+    # sibling (creative state copied, analysis recomputed); old project kept.
+    src_meta = json.loads(get(f"/api/project/{pid}")[1])
+    new_audio_name = "test_silence.wav" if src_meta.get("audioName") == "test.wav" else "test.wav"
+    new_audio = (FIXTURES / new_audio_name).read_bytes()
+    ab = "smokeaudioboundary"
+    abody = (
+        f"--{ab}\r\n"
+        f'Content-Disposition: form-data; name="audio"; filename="{new_audio_name}"\r\n'
+        "Content-Type: audio/wav\r\n\r\n"
+    ).encode() + new_audio + f"\r\n--{ab}--\r\n".encode()
+
+    def post_audio():
+        req = urllib.request.Request(
+            f"{BASE}/api/project/{pid}/audio", data=abody,
+            headers={"Content-Type": f"multipart/form-data; boundary={ab}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return json.loads(r.read())
+
+    replaced = post_audio()
+    assert replaced["id"] != pid, "replace audio should mint a sibling"
+    assert replaced["audioName"] == new_audio_name, replaced
+    assert replaced.get("replacedFrom") == pid, replaced
+    assert replaced.get("analysisReady"), replaced
+    assert "comparison" in replaced and "warnings" in replaced["comparison"], replaced
+    # creative state + timing carried over (the bpm 99.5 session PUT earlier)
+    sess2 = json.loads(get(f"/api/project/{replaced['id']}/session")[1])
+    assert sess2.get("tempo", {}).get("bpm") == 99.5, "session must carry to replaced audio"
+    # old project still present (rollback)
+    assert get(f"/api/project/{pid}")[0] == 200, "old project must remain for rollback"
+    # identical-audio re-POST dedupes to the same sibling
+    assert post_audio()["id"] == replaced["id"], "re-replacing same audio must dedupe"
+    # cleanup the sibling
+    urllib.request.urlopen(urllib.request.Request(
+        f"{BASE}/api/project/{replaced['id']}", method="DELETE"), timeout=10)
+    print(f"replace audio   : ok ({pid} -> {replaced['id']}, session carried, comparison present)")
 
     # rack validation + round-trip (POST → GET → DELETE)
     bad_req = urllib.request.Request(

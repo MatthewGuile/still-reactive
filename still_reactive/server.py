@@ -101,6 +101,30 @@ async def swap_project_image(pid: str, image: UploadFile = File(...)):
     return meta
 
 
+@app.post("/api/project/{pid}/audio")
+async def replace_project_audio(pid: str, audio: UploadFile = File(...)):
+    """Replace audio, same image — keeps the creative build, re-analyzes the new
+    file. Mints a content-addressed sibling; the old project stays for rollback.
+    Returns the sibling meta plus an old-vs-new analysis comparison."""
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(400, "An audio file is required.")
+    old_analysis = await run_in_threadpool(analysis.read_analysis, store.project_dir(pid))
+    try:
+        meta = await run_in_threadpool(
+            store.swap_audio, pid, audio.filename, audio_bytes)
+    except FileNotFoundError:
+        raise HTTPException(404, "Project not found")
+    try:
+        meta = await run_in_threadpool(
+            analysis.ensure_analysis, store.project_dir(meta["id"]))
+    except RuntimeError as exc:
+        raise HTTPException(422, str(exc))
+    new_analysis = await run_in_threadpool(
+        analysis.read_analysis, store.project_dir(meta["id"]))
+    return {**meta, "comparison": analysis.compare_audio(old_analysis, new_analysis)}
+
+
 @app.patch("/api/project/{pid}")
 async def rename_project(pid: str, payload: dict):
     try:

@@ -128,6 +128,47 @@ def swap_image(pid: str, image_name: str, image_bytes: bytes) -> dict:
     return meta
 
 
+def swap_audio(pid: str, audio_name: str, audio_bytes: bytes) -> dict:
+    """New project with different audio over the SAME image (replace audio).
+
+    Mirrors swap_image: mints a content-addressed sibling and copies
+    session.json (the creative build), but NOT analysis.json — the audio
+    changed, so analysis must be recomputed for the new file. Records
+    `replacedFrom` for provenance; the old project stays on disk for rollback.
+    """
+    old_dir = project_dir(pid)
+    old_meta = read_meta(pid)
+    image_bytes = (old_dir / old_meta["imageFile"]).read_bytes()
+    new_pid = hashlib.sha1(image_bytes + b"\x00" + audio_bytes).hexdigest()[:12]
+    if new_pid == pid:
+        return old_meta
+    new_dir = PROJECTS / new_pid
+    meta_path = new_dir / "meta.json"
+    if meta_path.exists():
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+
+    new_dir.mkdir(parents=True, exist_ok=True)
+    audio_file = f"audio.{_ext(audio_name, 'wav')}"
+    (new_dir / old_meta["imageFile"]).write_bytes(image_bytes)
+    (new_dir / audio_file).write_bytes(audio_bytes)
+    src = old_dir / "session.json"
+    if src.exists():
+        shutil.copyfile(src, new_dir / "session.json")
+    meta = {
+        "id": new_pid,
+        "imageName": old_meta.get("imageName", ""),
+        "audioName": audio_name,
+        "imageFile": old_meta["imageFile"],
+        "audioFile": audio_file,
+        "created": time.time(),
+        "replacedFrom": pid,
+    }
+    if "name" in old_meta:
+        meta["name"] = old_meta["name"]
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    return meta
+
+
 def rename_project(pid: str, name: str) -> dict:
     meta = read_meta(pid)
     name = _SAFE_NAME.sub("", str(name or "")).strip()[:60]
