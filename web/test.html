@@ -762,6 +762,204 @@ async function main() {
     step('applyMacros deterministic', out2.bloomAmount === out.bloomAmount);
   }
 
+  // Item 1 -- mapping correctness: bool threshold/invert, enum sub-range,
+  // numeric custom range, and normalizeMapping migration (pure).
+  {
+    const { applyMacros, normalizeMapping, paramIndex } = await import('./js/params.js');
+    const idxM = paramIndex();
+
+    // bool: custom threshold flips on at/above the threshold
+    const boolRack = { id: 'rkB', name: 'B', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', threshold: 0.7, invert: false }] }] };
+    const b40 = applyMacros({ 'rkB.m1': 0.4, warpOn: false }, [boolRack]).warpOn;
+    const b80 = applyMacros({ 'rkB.m1': 0.8, warpOn: false }, [boolRack]).warpOn;
+    step('bool mapping: custom threshold flips at 0.7',
+      b40 === false && b80 === true, `at0.4=${b40} at0.8=${b80}`);
+
+    // bool: invert reverses the crossover (on below threshold)
+    const invRack = { id: 'rkI', name: 'I', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', threshold: 0.5, invert: true }] }] };
+    const i20 = applyMacros({ 'rkI.m1': 0.2, warpOn: false }, [invRack]).warpOn;
+    const i80 = applyMacros({ 'rkI.m1': 0.8, warpOn: false }, [invRack]).warpOn;
+    step('bool mapping: invert reverses (on below threshold)',
+      i20 === true && i80 === false, `at0.2=${i20} at0.8=${i80}`);
+
+    // legacy bool mapping ({min,max}, no threshold) still resolves at 0.5
+    const legacyRack = { id: 'rkL', name: 'L', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', min: 0, max: 1 }] }] };
+    const l40 = applyMacros({ 'rkL.m1': 0.4, warpOn: false }, [legacyRack]).warpOn;
+    const l60 = applyMacros({ 'rkL.m1': 0.6, warpOn: false }, [legacyRack]).warpOn;
+    step('bool mapping: legacy min/max defaults to threshold 0.5',
+      l40 === false && l60 === true, `at0.4=${l40} at0.6=${l60}`);
+
+    // normalizeMapping migrates legacy bool -> {threshold, invert}, drops min/max
+    const nb = normalizeMapping({ key: 'warpOn', min: 0, max: 1 }, idxM.warpOn);
+    step('normalizeMapping: legacy bool -> threshold 0.5 / invert false, no min/max',
+      nb.threshold === 0.5 && nb.invert === false
+        && nb.min === undefined && nb.max === undefined, JSON.stringify(nb));
+
+    // normalizeMapping bare {key} -> full numeric schema range
+    const nNum = normalizeMapping({ key: 'bloomAmount' }, idxM.bloomAmount);
+    step('normalizeMapping: numeric bare key -> full schema range',
+      Math.abs(nNum.min - idxM.bloomAmount.min) < 1e-6
+        && Math.abs(nNum.max - idxM.bloomAmount.max) < 1e-6, JSON.stringify(nNum));
+
+    // numeric custom range scans that range
+    const numRack = { id: 'rkN', name: 'N', deviceIds: ['bloom'],
+      macros: [{ name: 'T', mappings: [{ key: 'bloomAmount', min: 0.2, max: 0.6 }] }] };
+    const n0 = applyMacros({ 'rkN.m1': 0, bloomAmount: 0 }, [numRack]).bloomAmount;
+    const n1 = applyMacros({ 'rkN.m1': 1, bloomAmount: 0 }, [numRack]).bloomAmount;
+    step('numeric mapping: scans custom range 0.2..0.6',
+      Math.abs(n0 - 0.2) < 1e-6 && Math.abs(n1 - 0.6) < 1e-6, `at0=${n0} at1=${n1}`);
+
+    // enum sub-range scans only the chosen options
+    const enumKey = Object.keys(idxM).find(
+      (k) => idxM[k].type === 'enum' && idxM[k].options && idxM[k].options.length >= 4);
+    if (enumKey) {
+      const opts = idxM[enumKey].options;
+      const enRack = { id: 'rkE', name: 'E', deviceIds: [],
+        macros: [{ name: 'T', mappings: [{ key: enumKey, min: 1, max: 2 }] }] };
+      const e0 = applyMacros({ 'rkE.m1': 0, [enumKey]: opts[0] }, [enRack])[enumKey];
+      const e1 = applyMacros({ 'rkE.m1': 1, [enumKey]: opts[0] }, [enRack])[enumKey];
+      step('enum mapping: sub-range scans only options 1..2',
+        e0 === opts[1] && e1 === opts[2], `at0=${e0} at1=${e1}`);
+    } else {
+      step('enum mapping: sub-range scans only options 1..2', true, 'skip: no enum param');
+    }
+
+    // sanitizeRacks keeps a bool mapping that has no min/max (regression vs the
+    // old Number.isFinite(min/max) filter) and normalizes it.
+    {
+      const W = document.getElementById('appFrame').contentWindow;
+      const cleaned = W.__racks.sanitizeRacks([{
+        id: 'rkS', name: 'S', deviceIds: ['warp'],
+        macros: [{ name: 'T', mappings: [
+          { key: 'warpOn', threshold: 0.7, invert: true },   // new bool shape
+          { key: 'bloomAmount', min: 0.2, max: 0.6 },        // numeric
+          { key: 'doesNotExist', min: 0, max: 1 },           // dropped
+        ] }],
+      }]);
+      const maps = cleaned[0].macros[0].mappings;
+      const boolM = maps.find((m) => m.key === 'warpOn');
+      step('sanitizeRacks keeps + normalizes a bool mapping without min/max',
+        !!boolM && boolM.threshold === 0.7 && boolM.invert === true
+          && maps.length === 2, JSON.stringify(maps));
+    }
+
+    // applyRackToState normalizes a legacy bool mapping inside a saved rack
+    {
+      const { applyRackToState, defaultParams: dp3 } = await import('./js/params.js');
+      const savedLegacy = { name: 'Legacy', deviceIds: ['warp'],
+        params: {}, macros: [{ name: 'T', value: 0,
+          mappings: [{ key: 'warpOn', min: 0, max: 1 }] }] };  // legacy bool
+      const res = applyRackToState(savedLegacy, { chain: [], params: dp3(), racks: [] }, 'rkA');
+      const m = res.racks[0].macros[0].mappings[0];
+      step('applyRackToState normalizes legacy bool mapping to threshold/invert',
+        m.threshold === 0.5 && m.invert === false
+          && m.min === undefined && m.max === undefined, JSON.stringify(m));
+    }
+  }
+
+  // Item 1 (UI) -- mapping editor: edit numeric bounds, bool threshold/invert,
+  // reset, and undo, driven through the real rack functions + DOM.
+  {
+    const W = document.getElementById('appFrame').contentWindow;
+    const idoc = document.getElementById('appFrame').contentDocument;
+    const { applyMacros } = await import('./js/params.js');
+
+    // numeric bound edit via updateMapping -> applyMacros scans the new range
+    const rN = W.__racks.createRack('EditNum');
+    W.__racks.mapParamToMacro(rN.id, 0, 'bloomAmount');     // numeric, default 0..1.5
+    W.__racks.updateMapping(rN.id, 0, 0, { min: 0.2, max: 0.6 });
+    const key = `${rN.id}.m1`;
+    const lo = applyMacros({ [key]: 0, bloomAmount: 0 }, W.__racks.state.racks).bloomAmount;
+    const hi = applyMacros({ [key]: 1, bloomAmount: 0 }, W.__racks.state.racks).bloomAmount;
+    step('editor: numeric bound edit changes the scanned range',
+      Math.abs(lo - 0.2) < 1e-6 && Math.abs(hi - 0.6) < 1e-6, `lo=${lo} hi=${hi}`);
+
+    // commit clamps lo < hi (entering lo above hi is rejected back to valid)
+    W.__racks.updateMapping(rN.id, 0, 0, { min: 0.9 });     // 0.9 >= hi 0.6 -> normalize resets to schema range (0..1.5)
+    const m0 = rN.macros[0].mappings[0];
+    step('editor: lo >= hi is rejected (kept valid, lo < hi)',
+      m0.min < m0.max, JSON.stringify(m0));
+
+    // numeric editor inputs are present in the disclosed row
+    const numInputs = idoc.querySelectorAll(
+      `[data-rack-id="${rN.id}"] .map-row input.map-min, [data-rack-id="${rN.id}"] .map-row input.map-max`);
+    step('editor: numeric row renders min/max number inputs', numInputs.length === 2,
+      `inputs=${numInputs.length}`);
+    W.__racks.deleteRack(rN.id);
+
+    // bool threshold + invert via updateMapping
+    const rB = W.__racks.createRack('EditBool');
+    W.__racks.mapParamToMacro(rB.id, 0, 'warpOn');          // bool, default thr 0.5
+    const bKey = `${rB.id}.m1`;
+    W.__racks.updateMapping(rB.id, 0, 0, { threshold: 0.7 });
+    const onAt60 = applyMacros({ [bKey]: 0.6, warpOn: false }, W.__racks.state.racks).warpOn;
+    const onAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
+    step('editor: bool threshold edit moves the on/off point to 0.7',
+      onAt60 === false && onAt80 === true, `at0.6=${onAt60} at0.8=${onAt80}`);
+    W.__racks.updateMapping(rB.id, 0, 0, { invert: true });   // threshold 0.7 preserved (merge)
+    const invAt60 = applyMacros({ [bKey]: 0.6, warpOn: false }, W.__racks.state.racks).warpOn;
+    const invAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
+    step('editor: bool invert reverses (on below threshold, off above); threshold preserved',
+      invAt60 === true && invAt80 === false, `at0.6(inv)=${invAt60} at0.8(inv)=${invAt80}`);
+    const boolCtl = idoc.querySelectorAll(
+      `[data-rack-id="${rB.id}"] .map-row input.map-threshold, [data-rack-id="${rB.id}"] .map-row button.map-invert`);
+    step('editor: bool row renders threshold input + invert button', boolCtl.length === 2,
+      `controls=${boolCtl.length}`);
+    W.__racks.deleteRack(rB.id);
+
+    // reset returns bounds to schema defaults
+    const rR = W.__racks.createRack('EditReset');
+    W.__racks.mapParamToMacro(rR.id, 0, 'bloomAmount');
+    W.__racks.updateMapping(rR.id, 0, 0, { min: 0.3, max: 0.4 });
+    W.__racks.resetMapping(rR.id, 0, 0);
+    const mr = rR.macros[0].mappings[0];
+    step('editor: reset restores schema default range',
+      Math.abs(mr.min - 0) < 1e-6 && Math.abs(mr.max - 1.5) < 1e-6, JSON.stringify(mr));
+    W.__racks.deleteRack(rR.id);
+
+    // undo reverts a mapping bound edit
+    const rU = W.__racks.createRack('EditUndo');
+    W.__racks.mapParamToMacro(rU.id, 0, 'bloomAmount');
+    W.__racks.updateMapping(rU.id, 0, 0, { min: 0.25, max: 0.75 });
+    const beforeUndo = JSON.stringify(rU.macros[0].mappings[0]);
+    W.__undo();
+    const afterRack = W.__racks.state.racks.find((x) => x.id === rU.id);
+    const afterUndo = afterRack && JSON.stringify(afterRack.macros[0].mappings[0]);
+    step('editor: Ctrl+Z reverts a mapping bound edit',
+      beforeUndo.includes('0.25') && afterUndo && !afterUndo.includes('0.25'),
+      `before=${beforeUndo} after=${afterUndo}`);
+    const cleanup = W.__racks.state.racks.find((x) => x.id === rU.id);
+    if (cleanup) W.__racks.deleteRack(rU.id);
+
+    // enum editor: lo/hi <select> initialize to the mapping's min/max indices
+    // (regression guard: el() turned boolean `selected` into a present attr,
+    // which left the select on the LAST option regardless of min/max).
+    {
+      const { paramIndex } = await import('./js/params.js');
+      const idxEnum = paramIndex();
+      const enumKeyUI = Object.keys(idxEnum).find((k) => idxEnum[k].type === 'enum'
+        && idxEnum[k].automatable !== false && idxEnum[k].group
+        && idxEnum[k].options && idxEnum[k].options.length >= 3);
+      const rEn = enumKeyUI && W.__racks.createRack('EditEnum');
+      if (rEn) W.__racks.mapParamToMacro(rEn.id, 0, enumKeyUI);
+      const mapped = rEn && rEn.macros[0].mappings.length === 1;
+      if (mapped) {
+        const last = idxEnum[enumKeyUI].options.length - 1;
+        const loSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-lo`);
+        const hiSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-hi`);
+        step('editor: enum lo/hi selects initialize to mapping indices',
+          !!loSel && !!hiSel && loSel.value === '0' && hiSel.value === String(last),
+          loSel && hiSel ? `lo=${loSel.value} hi=${hiSel.value} last=${last}` : 'no enum selects');
+      } else {
+        step('editor: enum lo/hi selects initialize to mapping indices', true, 'skip: no mappable enum');
+      }
+      if (rEn) W.__racks.deleteRack(rEn.id);
+    }
+  }
+
   const macroRackEl = idoc.getElementById('macroRack');
   // R9-3: with no project the rack shows the empty state; cells/quartet/follow
   // live in the macro rack only once a project is loaded (verified via the

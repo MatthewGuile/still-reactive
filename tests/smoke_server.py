@@ -205,10 +205,14 @@ def main():
     except urllib.error.HTTPError as exc:
         assert exc.code == 400, exc.code
 
-    rack = {"name": "My Rack", "deviceIds": ["bloom"],
+    rack = {"name": "My Rack", "deviceIds": ["bloom", "warp"],
             "params": {"bloomThreshold": 0.5},
             "macros": [{"name": "Glow", "value": 0.4,
-                        "mappings": [{"key": "bloomAmount", "min": 0.0, "max": 0.8}]}]}
+                        "mappings": [
+                            {"key": "bloomAmount", "min": 0.2, "max": 0.6},      # numeric sub-range
+                            {"key": "warpOn", "threshold": 0.7, "invert": True}, # bool, no min/max
+                            {"key": "partType", "min": 1, "max": 3},             # enum sub-range (5 options)
+                        ]}]}
     req = urllib.request.Request(
         f"{BASE}/api/racks",
         data=json.dumps(rack).encode(),
@@ -223,6 +227,16 @@ def main():
     assert status == 200
     racks = json.loads(body)
     assert any(x["slug"] == slug for x in racks), f"rack {slug!r} not in list"
+    saved_back = next(x for x in racks if x["slug"] == slug)
+    rt_maps = saved_back["macros"][0]["mappings"]
+    bloom_map = next(m for m in rt_maps if m["key"] == "bloomAmount")
+    warp_map = next(m for m in rt_maps if m["key"] == "warpOn")
+    enum_map = next(m for m in rt_maps if m["key"] == "partType")
+    assert bloom_map["min"] == 0.2 and bloom_map["max"] == 0.6, bloom_map
+    assert warp_map["threshold"] == 0.7 and warp_map["invert"] is True, warp_map
+    assert "min" not in warp_map and "max" not in warp_map, warp_map
+    assert enum_map["min"] == 1 and enum_map["max"] == 3, enum_map
+    print("racks: mapping fields (bounds/threshold/invert/enum) round-trip")
     req = urllib.request.Request(f"{BASE}/api/racks/{slug}", method="DELETE")
     with urllib.request.urlopen(req, timeout=10) as r:
         assert r.status in (200, 204)

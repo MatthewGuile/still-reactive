@@ -9,7 +9,7 @@ import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
   PARAM_GROUPS, defaultChain, groupById, MOD_SOURCES, MOD_SEP,
   applyMacros, buildQuartet, MACRO_SLOTS, rackMacroKey,
-  autoGradeFromStats, rackToSaved, applyRackToState,
+  autoGradeFromStats, rackToSaved, applyRackToState, normalizeMapping,
 } from './params.js';
 import { STYLE_PACKS, getPack } from './packs.js';
 import { ParamPanel, el, toast, formatTime } from './ui.js';
@@ -285,7 +285,7 @@ function restoreHistory(snap) {
     if (state.bank) state.bank.setResponse(responseOf(params()));
   }
   if (Array.isArray(s.chain)) state.chain = s.chain.slice();
-  if (Array.isArray(s.racks)) { state.racks = s.racks; rebuildParamIndex(); }
+  if (Array.isArray(s.racks)) { state.racks = sanitizeRacks(s.racks); rebuildParamIndex(); }
   closeLaneIfMissingFromSchema();
   panel.rebuild();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
@@ -731,7 +731,9 @@ function sanitizeRacks(arr) {
     id: r.id, name: String(r.name || 'Rack').slice(0, 24),
     deviceIds: Array.isArray(r.deviceIds) ? r.deviceIds.filter((d) => groupById(d)) : [],
     macros: r.macros.filter(Boolean).slice(0, MACRO_SLOTS).map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
-      mappings: Array.isArray(m.mappings) ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max)) : [] })),
+      mappings: Array.isArray(m.mappings)
+        ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key]).map((mm) => normalizeMapping(mm, SCHEMA_INDEX[mm.key]))
+        : [] })),
   }));
 }
 
@@ -746,10 +748,7 @@ function mapParamToMacro(rackId, macroIdx, key) {
   for (const r of state.racks)
     for (const mac of r.macros) mac.mappings = mac.mappings.filter((mm) => mm.key !== key);
   claimDeviceForRack(rack, s.group);
-  let lo = 0, hi = 1;
-  if (s.type === 'enum') hi = s.options.length - 1;
-  else if (s.type !== 'bool') { lo = s.min; hi = s.max; }
-  rack.macros[macroIdx].mappings.push({ key, min: lo, max: hi });
+  rack.macros[macroIdx].mappings.push(normalizeMapping({ key }, s));
   if (automation.isAutomated(key))
     toast(`Note: the existing lane on "${s.label}" is ignored while macro-mapped`);
   panel.refresh(); buildRacksArea(); autosaveAutomation(); commitHistory();
@@ -760,6 +759,36 @@ function removeMapping(rackId, macroIdx, j) {
   const rack = state.racks.find((x) => x.id === rackId);
   if (!rack || !rack.macros[macroIdx]) return;
   rack.macros[macroIdx].mappings.splice(j, 1);
+  panel.refresh(); buildRacksArea(); autosaveAutomation(); commitHistory();
+}
+
+// Item 1: edit a single mapping's bounds/threshold/invert. Merges `patch`,
+// re-normalizes against the live schema (clamp + min<max), and commits like
+// removeMapping. No buildRacksArea() so the open disclosure + focus survive.
+function updateMapping(rackId, macroIdx, j, patch) {
+  const rack = state.racks.find((x) => x.id === rackId);
+  if (!rack || !rack.macros[macroIdx]) return null;
+  const mm = rack.macros[macroIdx].mappings[j];
+  if (!mm) return null;
+  const s = SCHEMA_INDEX[mm.key];
+  if (!s) return null;
+  const next = normalizeMapping({ ...mm, ...patch, key: mm.key }, s);
+  rack.macros[macroIdx].mappings[j] = next;
+  panel.refresh(); autosaveAutomation(); commitHistory();
+  return next;
+}
+
+// Item 1: reset a mapping back to its schema default range/threshold. Unlike
+// updateMapping, this calls buildRacksArea() (rebuilds the rack area, closing
+// the disclosure) since it changes multiple fields at once.
+function resetMapping(rackId, macroIdx, j) {
+  const rack = state.racks.find((x) => x.id === rackId);
+  if (!rack || !rack.macros[macroIdx]) return;
+  const mm = rack.macros[macroIdx].mappings[j];
+  if (!mm) return;
+  const s = SCHEMA_INDEX[mm.key];
+  if (!s) return;
+  rack.macros[macroIdx].mappings[j] = normalizeMapping({ key: mm.key }, s);
   panel.refresh(); buildRacksArea(); autosaveAutomation(); commitHistory();
 }
 
@@ -1030,9 +1059,45 @@ function buildMacroCell(rack, j) {
       el('span', { class: 'macro-map-count', text: `${macro.mappings.length}` }),
       el('span', { class: 'macro-map-preview', text: mappingPreview(macro.mappings) })));
   macro.mappings.forEach((mm, idx) => {
-    maps.append(el('div', { class: 'map-row' },
+    const s = SCHEMA_INDEX[mm.key] || {};
+    const eff = el('span', { class: 'map-eff', text: '' });
+    let editor;
+    if (s.type === 'bool') {
+      const thrIn = el('input', { class: 'map-threshold', type: 'number',
+        min: 0, max: 1, step: 0.05, value: Number.isFinite(mm.threshold) ? mm.threshold : 0.5,
+        title: 'macro position where this turns on',
+        onchange: (e) => { const r = updateMapping(rack.id, j, idx, { threshold: parseFloat(e.target.value) });
+          if (r) e.target.value = r.threshold; } });
+      const invBtn = el('button', { class: 'map-invert' + (mm.invert ? ' active' : ''),
+        text: 'invert', title: 'turn on below the threshold instead',
+        onclick: () => { updateMapping(rack.id, j, idx, { invert: !mm.invert }); buildRacksArea(); } });
+      editor = el('span', { class: 'map-ctl' }, el('span', { class: 'map-thr-label', text: 'thr' }), thrIn, invBtn);
+    } else if (s.type === 'enum') {
+      const mkSel = (cls, val) => {
+        const sel = el('select', { class: cls });
+        (s.options || []).forEach((opt, oi) => sel.append(el('option', { value: oi, text: String(opt) })));
+        sel.value = String(val);
+        return sel;
+      };
+      const loSel = mkSel('map-enum-lo', mm.min);
+      const hiSel = mkSel('map-enum-hi', mm.max);
+      loSel.onchange = (e) => { const r = updateMapping(rack.id, j, idx, { min: parseInt(e.target.value, 10) }); if (r) buildRacksArea(); };
+      hiSel.onchange = (e) => { const r = updateMapping(rack.id, j, idx, { max: parseInt(e.target.value, 10) }); if (r) buildRacksArea(); };
+      editor = el('span', { class: 'map-ctl' }, loSel, el('span', { class: 'map-arrow', text: '->' }), hiSel);
+    } else {
+      const mkNum = (cls, val) => el('input', { class: cls, type: 'number',
+        min: s.min, max: s.max, step: s.step, value: val });
+      const loIn = mkNum('map-min', mm.min);
+      const hiIn = mkNum('map-max', mm.max);
+      loIn.onchange = (e) => { const r = updateMapping(rack.id, j, idx, { min: parseFloat(e.target.value) }); if (r) { loIn.value = r.min; hiIn.value = r.max; } };
+      hiIn.onchange = (e) => { const r = updateMapping(rack.id, j, idx, { max: parseFloat(e.target.value) }); if (r) { loIn.value = r.min; hiIn.value = r.max; } };
+      editor = el('span', { class: 'map-ctl' }, loIn, el('span', { class: 'map-dash', text: '-' }), hiIn);
+    }
+    maps.append(el('div', { class: 'map-row', 'data-map-idx': idx },
       el('span', { class: 'map-label', title: mappingLabel(mm), text: mappingLabel(mm) }),
-      el('span', { class: 'map-range', text: `${formatMappingValue(mm.min)}-${formatMappingValue(mm.max)}` }),
+      editor, eff,
+      el('button', { class: 'map-reset', text: 'reset', title: 'reset to default range',
+        onclick: () => resetMapping(rack.id, j, idx) }),
       el('button', { class: 'mini-del', text: '×', title: 'remove mapping',
         onclick: () => removeMapping(rack.id, j, idx) })));
   });
@@ -1041,8 +1106,35 @@ function buildMacroCell(rack, j) {
     slider,
     el('div', { class: 'macro-foot' }, led, mapBtn),
     maps);
-  rackCells.push({ rackId: rack.id, macroIdx: j, key, slider, value, led, mapBtn });
+  rackCells.push({ rackId: rack.id, macroIdx: j, key, slider, value, led, mapBtn, mapsEl: maps });
   return cell;
+}
+
+// Item 1: when a macro's mapping disclosure is open, show each mapped param's
+// resolved value at the macro's current position. Cheap: only open <details>.
+function refreshMapEffective(c) {
+  if (!c.mapsEl || !c.mapsEl.open) return;
+  const rack = state.racks.find((x) => x.id === c.rackId);
+  const macro = rack && rack.macros[c.macroIdx];
+  if (!macro) return;
+  const v = params()[c.key] === undefined ? 0 : params()[c.key];
+  const rows = c.mapsEl.querySelectorAll('.map-row');
+  macro.mappings.forEach((mm, idx) => {
+    const cell = rows[idx] && rows[idx].querySelector('.map-eff');
+    if (!cell) return;
+    const s = SCHEMA_INDEX[mm.key];
+    if (!s) { cell.textContent = ''; return; }
+    if (s.type === 'bool') {
+      const thr = Number.isFinite(mm.threshold) ? mm.threshold : 0.5;
+      cell.textContent = (mm.invert ? v < thr : v >= thr) ? 'on' : 'off';
+    } else if (s.type === 'enum') {
+      const val = mm.min + (mm.max - mm.min) * v;
+      const oi = Math.round(Math.min(Math.max(val, 0), s.options.length - 1));
+      cell.textContent = String(s.options[oi]);
+    } else {
+      cell.textContent = formatMappingValue(mm.min + (mm.max - mm.min) * v);
+    }
+  });
 }
 
 function refreshRacks() {
@@ -1056,6 +1148,7 @@ function refreshRacks() {
     c.led.classList.toggle('lane-off', s === 'off');
     const active = state.mapping && state.mapping.rackId === c.rackId && state.mapping.macroIdx === c.macroIdx;
     c.mapBtn.classList.toggle('active', !!active);
+    refreshMapEffective(c);
   }
   if (signalOpen) refreshSignalMapping();
 }
@@ -3451,6 +3544,8 @@ Object.assign(window.__racks, { mapParamToMacro });
 Object.assign(window.__racks, { autoRack });
 // Task 4.4: apply saved rack to project.
 Object.assign(window.__racks, { applyRackToProject });
+// Item 1: mapping correctness test hooks.
+Object.assign(window.__racks, { sanitizeRacks, updateMapping, resetMapping, removeMapping });
 // Task 5.1: session payload test hook.
 window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload(true));
 // Task 5.2: undo test hook.
