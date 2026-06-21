@@ -721,6 +721,15 @@ window.onerror = (msg, src, line) => {
 
 // ------------------------------------------------------------- macro rack
 
+// WIP: racks are parked (2026-06-21). The rack ENGINE stays live but dormant
+// (applyMacros/normalizeMapping/state.racks/persistence/undo all intact; with
+// no racks created, applyMacros is a no-op and determinism is unaffected). Only
+// the rack UI is hidden from the frontend. To revive racks, flip this to true —
+// buildRacksArea() and refreshRackLibrary() gate on it. Parking it because the
+// rack UX was adding complexity that got in the way; revisit once the desired
+// rack feel is clearer.
+const RACKS_ENABLED = false;
+
 const macroRack = document.getElementById('macroRack');
 const paramPanelsEl = document.getElementById('paramPanels');
 let rackCells = [];   // [{rackId, macroIdx, key, slider, value, led, mapBtn}]
@@ -961,6 +970,13 @@ function setFollowStructure(on) {
 // the header + add controls render unconditionally (so the UI is reachable even
 // with no project); the empty hint only shows when there are no racks.
 function buildRacksArea() {
+  if (!RACKS_ENABLED) {           // WIP: rack UI parked — render nothing, stay hidden
+    macroRack.textContent = '';
+    rackCells = [];
+    macroRack.hidden = true;
+    return;
+  }
+  macroRack.hidden = false;
   macroRack.textContent = '';
   rackCells = [];
   const canAddRack = state.racks.length < MAX_RACKS;
@@ -3127,6 +3143,12 @@ function applyRackToProject(saved) {
 }
 
 async function refreshRackLibrary() {
+  const section = document.getElementById('rackLibrary');
+  if (!RACKS_ENABLED) {           // WIP: rack-presets library parked — hide the section
+    if (section) section.hidden = true;
+    return;
+  }
+  if (section) section.hidden = false;
   const list = document.getElementById('rackList');
   if (!list) return;
   list.textContent = '';

@@ -117,17 +117,19 @@ async function main() {
     canvasCb.checked = false; canvasCb.dispatchEvent(new Event('change')); // restore
   }
   step('device dimmed-off state clears when switched on', offClears);
-  // Phase 3 (Task 3.5): the Racks area renders its header + add controls
-  // unconditionally; with no project loaded it also shows the empty hint.
-  step('R9-3 racks empty state with no project loaded',
-    !!idoc.querySelector('#macroRack .macro-empty'));
-  step('Racks area present with + Rack control',
-    !!idoc.querySelector('#macroRack .rack-add') || !!idoc.querySelector('[data-add-rack]'));
-  step('Racks area exposes Load rack, not Auto rack',
-    !![...idoc.querySelectorAll('#macroRack button')].find((b) => b.textContent.trim() === 'Load rack')
-      && ![...idoc.querySelectorAll('#macroRack button')].find((b) => /Auto rack/i.test(b.textContent)));
-  // Task 4.4: saved-racks library section + parked preset UI hidden.
-  step('Racks library section present', !!idoc.querySelector('#rackLibrary'));
+  // Racks parked (WIP, 2026-06-21): the rack UI is hidden from the frontend
+  // while the engine stays dormant. #macroRack renders nothing and is hidden,
+  // and the Rack-presets library section is hidden. (Engine behaviour is still
+  // covered by the pure/state-level rack tests further down.)
+  step('racks parked: #macroRack hidden + empty',
+    idoc.getElementById('macroRack').hidden === true
+      && idoc.querySelectorAll('#macroRack .rack-card, #macroRack .rack-add, #macroRack .macro-empty').length === 0);
+  step('racks parked: no Load rack / + Rack controls rendered',
+    !idoc.querySelector('[data-add-rack]')
+      && !idoc.querySelector('[data-rack-id]')
+      && ![...idoc.querySelectorAll('#macroRack button')].some((b) => b.textContent.trim() === 'Load rack'));
+  step('racks parked: Rack-presets library section hidden',
+    !!idoc.getElementById('rackLibrary') && idoc.getElementById('rackLibrary').hidden === true);
   step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
     || idoc.querySelector('#savePresetBtn').offsetParent === null);
   step('R7 UI present (Style dropdown gone / focus / snapshots / master)',
@@ -719,23 +721,9 @@ async function main() {
     W.__racks.deleteRack(r.id);
   }
 
-  // Full rack UI: the add-macro control disappears at the macro slot limit.
-  {
-    const W = document.getElementById('appFrame').contentWindow;
-    const idoc = document.getElementById('appFrame').contentDocument;
-    const r = W.__racks.createRack('Full');
-    for (let i = 0; i < 20; i++) {
-      const btn = idoc.querySelector(`[data-rack-id="${r.id}"] [data-add-macro]`);
-      if (!btn) break;
-      btn.click();
-      await sleep(0);
-    }
-    step('+ macro button hides when the rack is full',
-      r.macros.length === MACRO_SLOTS
-      && !idoc.querySelector(`[data-rack-id="${r.id}"] [data-add-macro]`),
-      `macros=${r.macros.length}`);
-    W.__racks.deleteRack(r.id);
-  }
+  // (Rack UI parked: the "+ macro" DOM affordance no longer renders, so the
+  // slot-limit UI test is retired. Engine cap logic is reachable again when
+  // racks are revived.)
 
   // Final review fix -- removing a rack device clears its mappings too
   {
@@ -860,54 +848,44 @@ async function main() {
     }
   }
 
-  // Item 1 (UI) -- mapping editor: edit numeric bounds, bool threshold/invert,
-  // reset, and undo, driven through the real rack functions + DOM.
+  // Item 1 (engine) -- mapping edit logic (updateMapping/resetMapping/undo)
+  // exercised at state level via the rack functions. The rack editor UI is
+  // parked (WIP), but the engine these tests cover stays live for revival.
   {
     const W = document.getElementById('appFrame').contentWindow;
-    const idoc = document.getElementById('appFrame').contentDocument;
     const { applyMacros } = await import('./js/params.js');
 
-    // numeric bound edit via updateMapping -> applyMacros scans the new range
+    // numeric bound edit -> applyMacros scans the new range
     const rN = W.__racks.createRack('EditNum');
     W.__racks.mapParamToMacro(rN.id, 0, 'bloomAmount');     // numeric, default 0..1.5
     W.__racks.updateMapping(rN.id, 0, 0, { min: 0.2, max: 0.6 });
     const key = `${rN.id}.m1`;
     const lo = applyMacros({ [key]: 0, bloomAmount: 0 }, W.__racks.state.racks).bloomAmount;
     const hi = applyMacros({ [key]: 1, bloomAmount: 0 }, W.__racks.state.racks).bloomAmount;
-    step('editor: numeric bound edit changes the scanned range',
+    step('mapping edit: numeric bound edit changes the scanned range',
       Math.abs(lo - 0.2) < 1e-6 && Math.abs(hi - 0.6) < 1e-6, `lo=${lo} hi=${hi}`);
 
     // commit clamps lo < hi (entering lo above hi is rejected back to valid)
     W.__racks.updateMapping(rN.id, 0, 0, { min: 0.9 });     // 0.9 >= hi 0.6 -> normalize resets to schema range (0..1.5)
     const m0 = rN.macros[0].mappings[0];
-    step('editor: lo >= hi is rejected (kept valid, lo < hi)',
+    step('mapping edit: lo >= hi is rejected (kept valid, lo < hi)',
       m0.min < m0.max, JSON.stringify(m0));
-
-    // numeric editor inputs are present in the disclosed row
-    const numInputs = idoc.querySelectorAll(
-      `[data-rack-id="${rN.id}"] .map-row input.map-min, [data-rack-id="${rN.id}"] .map-row input.map-max`);
-    step('editor: numeric row renders min/max number inputs', numInputs.length === 2,
-      `inputs=${numInputs.length}`);
     W.__racks.deleteRack(rN.id);
 
-    // bool threshold + invert via updateMapping
+    // bool threshold + invert (engine keeps both for revival)
     const rB = W.__racks.createRack('EditBool');
-    W.__racks.mapParamToMacro(rB.id, 0, 'warpOn');          // bool, default thr 0.5
+    W.__racks.mapParamToMacro(rB.id, 0, 'warpOn');
     const bKey = `${rB.id}.m1`;
     W.__racks.updateMapping(rB.id, 0, 0, { threshold: 0.7 });
     const onAt60 = applyMacros({ [bKey]: 0.6, warpOn: false }, W.__racks.state.racks).warpOn;
     const onAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
-    step('editor: bool threshold edit moves the on/off point to 0.7',
+    step('mapping edit: bool threshold edit moves the on/off point to 0.7',
       onAt60 === false && onAt80 === true, `at0.6=${onAt60} at0.8=${onAt80}`);
     W.__racks.updateMapping(rB.id, 0, 0, { invert: true });   // threshold 0.7 preserved (merge)
     const invAt60 = applyMacros({ [bKey]: 0.6, warpOn: false }, W.__racks.state.racks).warpOn;
     const invAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
-    step('editor: bool invert reverses (on below threshold, off above); threshold preserved',
+    step('mapping edit: bool invert reverses (on below threshold, off above); threshold preserved',
       invAt60 === true && invAt80 === false, `at0.6(inv)=${invAt60} at0.8(inv)=${invAt80}`);
-    const boolCtl = idoc.querySelectorAll(
-      `[data-rack-id="${rB.id}"] .map-row input.map-threshold, [data-rack-id="${rB.id}"] .map-row button.map-invert`);
-    step('editor: bool row renders threshold input + invert button', boolCtl.length === 2,
-      `controls=${boolCtl.length}`);
     W.__racks.deleteRack(rB.id);
 
     // reset returns bounds to schema defaults
@@ -916,7 +894,7 @@ async function main() {
     W.__racks.updateMapping(rR.id, 0, 0, { min: 0.3, max: 0.4 });
     W.__racks.resetMapping(rR.id, 0, 0);
     const mr = rR.macros[0].mappings[0];
-    step('editor: reset restores schema default range',
+    step('mapping edit: reset restores schema default range',
       Math.abs(mr.min - 0) < 1e-6 && Math.abs(mr.max - 1.5) < 1e-6, JSON.stringify(mr));
     W.__racks.deleteRack(rR.id);
 
@@ -928,36 +906,11 @@ async function main() {
     W.__undo();
     const afterRack = W.__racks.state.racks.find((x) => x.id === rU.id);
     const afterUndo = afterRack && JSON.stringify(afterRack.macros[0].mappings[0]);
-    step('editor: Ctrl+Z reverts a mapping bound edit',
+    step('mapping edit: Ctrl+Z reverts a mapping bound edit',
       beforeUndo.includes('0.25') && afterUndo && !afterUndo.includes('0.25'),
       `before=${beforeUndo} after=${afterUndo}`);
     const cleanup = W.__racks.state.racks.find((x) => x.id === rU.id);
     if (cleanup) W.__racks.deleteRack(rU.id);
-
-    // enum editor: lo/hi <select> initialize to the mapping's min/max indices
-    // (regression guard: el() turned boolean `selected` into a present attr,
-    // which left the select on the LAST option regardless of min/max).
-    {
-      const { paramIndex } = await import('./js/params.js');
-      const idxEnum = paramIndex();
-      const enumKeyUI = Object.keys(idxEnum).find((k) => idxEnum[k].type === 'enum'
-        && idxEnum[k].automatable !== false && idxEnum[k].group
-        && idxEnum[k].options && idxEnum[k].options.length >= 3);
-      const rEn = enumKeyUI && W.__racks.createRack('EditEnum');
-      if (rEn) W.__racks.mapParamToMacro(rEn.id, 0, enumKeyUI);
-      const mapped = rEn && rEn.macros[0].mappings.length === 1;
-      if (mapped) {
-        const last = idxEnum[enumKeyUI].options.length - 1;
-        const loSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-lo`);
-        const hiSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-hi`);
-        step('editor: enum lo/hi selects initialize to mapping indices',
-          !!loSel && !!hiSel && loSel.value === '0' && hiSel.value === String(last),
-          loSel && hiSel ? `lo=${loSel.value} hi=${hiSel.value} last=${last}` : 'no enum selects');
-      } else {
-        step('editor: enum lo/hi selects initialize to mapping indices', true, 'skip: no mappable enum');
-      }
-      if (rEn) W.__racks.deleteRack(rEn.id);
-    }
   }
 
   const macroRackEl = idoc.getElementById('macroRack');
@@ -1085,15 +1038,11 @@ async function main() {
     step('autoRack creates a quartet rack (4 macros named Energy..Colour)',
     W.__racks.state.racks.length === before + 1 && r.macros.length === 4
       && r.macros.map((m) => m.name).join(',') === 'Energy,Motion,Texture,Colour', r.macros.map((m) => m.name).join(','));
-    const idoc = document.getElementById('appFrame').contentDocument;
-    const rows = idoc.querySelectorAll(`[data-rack-id="${r.id}"] .macro-mappings .map-row`).length;
-    const summaries = idoc.querySelectorAll(`[data-rack-id="${r.id}"] .macro-map-summary`).length;
-    step('autoRack exposes per-macro mapping summaries and details',
-      rows === r.macros.reduce((n, m) => n + m.mappings.length, 0)
-      && summaries === r.macros.length
-      && r.macros[0].mappings.some((mm) => mm.key === 'audReact')
-      && r.macros[1].mappings.length > 0,
-      `summaries=${summaries} rows=${rows}`);
+    step('autoRack builds per-macro mappings (Energy owns audReact; Motion mapped)',
+      r.macros[0].mappings.some((mm) => mm.key === 'audReact')
+      && r.macros[1].mappings.length > 0
+      && r.macros.every((m) => m.mappings.length > 0),
+      r.macros.map((m) => `${m.name}=${m.mappings.length}`).join(' '));
     W.__racks.deleteRack(r.id);
   }
 
