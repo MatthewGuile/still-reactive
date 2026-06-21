@@ -62,9 +62,22 @@ model** — a Project is the canonical saved work; per-project autosave/session
 restore is the invisible safety net. Undo/redo (`historySnapshot`/`history.stack`)
 is a separate system and untouched. Old sessions carrying a `snapshots` key are
 silently ignored (compatibility dropped). Frontend-only; determinism unaffected.
-**Next: sub-project B — Replace audio** (swap-audio sibling + analysis refresh +
-timing-review warnings); see
-[docs/superpowers/plans/2026-06-20-project-model-replace-audio.md](superpowers/plans/2026-06-20-project-model-replace-audio.md).
+
+**Replace audio SHIPPED 2026-06-21** (branch `feat/replace-audio`) — roadmap
+item 2 **sub-project B**, which completes item 2. Mirrors the content-addressed
+image-swap: `store.swap_audio` mints a **sibling** project
+`sha1(image+new_audio)`, copies `session.json` (creative state) but NOT
+`analysis.json`, records `replacedFrom`; `POST /api/project/{pid}/audio` runs
+`ensure_analysis` on the sibling and returns `{...meta, comparison}` where
+`analysis.compare_audio` flags duration/tempo/downbeat drift (tol 0.5s / 1.0bpm
+/ 0.1s). The media-card **"Replace audio"** button flushes the session, POSTs the
+file, and `loadProject`s the sibling — **project timing is kept** automatically
+(the copied session restores `tempoMap` over the new analysis), with an
+**apply-then-warn** toast on drift. The **old project stays in the Library =
+free rollback**; identical audio dedupes. No checksum, no modal, no
+accept-new-timing. Determinism unaffected. **Item 2 (project model cleanup +
+replace audio) is COMPLETE.** Next roadmap item: **3 — UI settings + Focus
+default.**
 
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
@@ -101,15 +114,10 @@ round numbers below are historical labels, not priority.
    lower/upper bounds, bool/device-on trigger thresholds + invert, enum
    sub-range handling, per-macro mapping editor, undo, persistence, and
    saved-rack round-trips. The curated-presets half is item 9 below.
-2. **Project model cleanup + replace audio** — planned:
-   [docs/superpowers/plans/2026-06-20-project-model-replace-audio.md](superpowers/plans/2026-06-20-project-model-replace-audio.md).
-   Make Projects the clear saved-work unit and remove or heavily demote
-   Snapshots if they remain confusing. Add a **Replace audio** workflow so a
-   project can swap from an unmastered track to the mastered version while
-   keeping devices, racks, params, automation, markers, loop, base layer, and
-   export settings. Re-run analysis for the new file, preserve beat-domain
-   automation, and warn when duration / tempo / downbeat drift means the user
-   should review timing.
+2. **Project model cleanup + replace audio** — ✅ **SHIPPED 2026-06-21**
+   (see "Current state"). Sub-project A retired Snapshots (Projects + autosave
+   are the save model); sub-project B added Replace audio (content-addressed
+   swap-audio sibling, re-analysis, keep-timing/apply-then-warn, free rollback).
 3. **UI settings + Focus default.** Default the device area to Focus mode, hide
    the inline Focus-mode control from the Devices surface, and add a Settings
    button that opens a dialog for UI preferences. Treat these as local UI
