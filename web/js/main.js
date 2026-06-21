@@ -772,7 +772,7 @@ function updateMapping(rackId, macroIdx, j, patch) {
   if (!mm) return null;
   const s = SCHEMA_INDEX[mm.key];
   if (!s) return null;
-  const next = normalizeMapping({ key: mm.key, ...patch }, s);
+  const next = normalizeMapping({ ...mm, ...patch, key: mm.key }, s);
   rack.macros[macroIdx].mappings[j] = next;
   panel.refresh(); autosaveAutomation(); commitHistory();
   return next;

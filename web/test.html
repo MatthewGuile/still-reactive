@@ -899,10 +899,11 @@ async function main() {
     const onAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
     step('editor: bool threshold edit moves the on/off point to 0.7',
       onAt60 === false && onAt80 === true, `at0.6=${onAt60} at0.8=${onAt80}`);
-    W.__racks.updateMapping(rB.id, 0, 0, { invert: true });
+    W.__racks.updateMapping(rB.id, 0, 0, { invert: true });   // threshold 0.7 preserved (merge)
     const invAt60 = applyMacros({ [bKey]: 0.6, warpOn: false }, W.__racks.state.racks).warpOn;
-    step('editor: bool invert reverses behavior (off above threshold)',
-      invAt60 === false, `at0.6(inv)=${invAt60}`);
+    const invAt80 = applyMacros({ [bKey]: 0.8, warpOn: false }, W.__racks.state.racks).warpOn;
+    step('editor: bool invert reverses (on below threshold, off above); threshold preserved',
+      invAt60 === true && invAt80 === false, `at0.6(inv)=${invAt60} at0.8(inv)=${invAt80}`);
     const boolCtl = idoc.querySelectorAll(
       `[data-rack-id="${rB.id}"] .map-row input.map-threshold, [data-rack-id="${rB.id}"] .map-row button.map-invert`);
     step('editor: bool row renders threshold input + invert button', boolCtl.length === 2,
