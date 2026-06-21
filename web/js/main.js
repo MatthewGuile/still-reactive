@@ -366,8 +366,8 @@ async function restoreAutomation(projectId) {
   return applySessionData(saved);
 }
 
-// Apply a saved-session object to live state (shared by project restore and
-// snapshot restore). songMarkers is reset by the caller before this runs.
+// Apply a saved-session object to live state (used by project/session
+// restore). songMarkers is reset by the caller before this runs.
 function applySessionData(saved) {
   if (!saved) return false;
   try {
