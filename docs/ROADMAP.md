@@ -39,6 +39,20 @@ reset-to-default, and a live effective-value readout. `applyMacros` stays a pure
 function of `(params, racks)` — determinism untouched; migration is lazy/in-memory
 (no cache bump). Curated starter presets remain future work (item 9 below).
 
+**Racks PARKED 2026-06-21** (branch `chore/park-racks`): the rack UX was adding
+complexity that got in the way of creativity, so the **entire rack UI is hidden
+from the frontend** behind a `RACKS_ENABLED = false` flag (`web/js/main.js`) —
+`buildRacksArea()` and `refreshRackLibrary()` gate on it, so the rack cards,
++ Rack / Load rack / Map / Assign / Save controls, and the Rack-presets library
+section all render nothing and stay hidden. **The engine stays live but dormant**
+(`applyMacros`, `normalizeMapping`, `state.racks`, persistence, undo, the
+`/api/racks` endpoints, and `paramIndex` rack keys are all intact; with no racks
+created, `applyMacros` is a no-op and determinism is unaffected). Engine
+behaviour stays covered by the pure/state-level rack tests. **To revive:** flip
+`RACKS_ENABLED` to `true`; revisit the rack model/feel first. Items 1 and 9 are
+therefore on hold (the threshold + invert mapping model is preserved in the
+dormant code).
+
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
 user's own test videos.
