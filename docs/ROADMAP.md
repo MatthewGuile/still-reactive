@@ -27,6 +27,18 @@ presets**; curated starter presets are still future work. Last full regression
 before merge: `smoke_backend`, `smoke_server`, `check_shaders`,
 `smoke_browser`, and `check_schema`.
 
+**Rack mapping correctness shipped 2026-06-21** (branch `feat/rack-mapping`):
+the non-curation half of item 1. Mapping shapes are now type-discriminated —
+numeric `{key,min,max}` (min<max), enum `{key,min,max}` option-index sub-range,
+bool `{key,threshold,invert}`. A pure `normalizeMapping(mm, s)` is the single
+funnel for migration (legacy bool `{min,max}`→threshold), creation defaults, and
+edit validation; it runs on every rack-restore path (`sanitizeRacks`,
+`applyRackToState`, undo `restoreHistory`). Each macro's disclosure now has an
+inline editor: numeric bounds, enum lo/hi selects, bool threshold + invert,
+reset-to-default, and a live effective-value readout. `applyMacros` stays a pure
+function of `(params, racks)` — determinism untouched; migration is lazy/in-memory
+(no cache bump). Curated starter presets remain future work (item 9 below).
+
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
 user's own test videos.
@@ -57,11 +69,11 @@ user's own test videos.
 **Recommended sequence (updated 2026-06-20).** This is the authority on order;
 round numbers below are historical labels, not priority.
 
-1. **Rack Improvements: mapping control correctness.** Do the non-curation half
-   first: editable continuous lower/upper bounds, bool/device-on trigger
-   thresholds, enum mapping handling, per-macro mapping editor, undo,
-   persistence, and saved-rack round-trips. This fixes the main rough edge in
-   the newly shipped rack model before more rack content is added.
+1. **Rack Improvements: mapping control correctness.** ✅ **SHIPPED 2026-06-21**
+   (branch `feat/rack-mapping`; see "Current state"). Editable continuous
+   lower/upper bounds, bool/device-on trigger thresholds + invert, enum
+   sub-range handling, per-macro mapping editor, undo, persistence, and
+   saved-rack round-trips. The curated-presets half is item 9 below.
 2. **Project model cleanup + replace audio** — planned:
    [docs/superpowers/plans/2026-06-20-project-model-replace-audio.md](superpowers/plans/2026-06-20-project-model-replace-audio.md).
    Make Projects the clear saved-work unit and remove or heavily demote
