@@ -127,6 +127,19 @@ def main() -> None:
     assert abs(a2["audioStart"] - lead) < 0.15, "leading silence not detected"
     assert a2["beatOffset"] >= lead - 0.25, "bar 1 still inside the leading silence"
     assert phase < 0.045, "bar 1 not aligned to the kick grid"
+
+    # Replace-audio comparison helper (pure): duration/tempo/downbeat tolerances.
+    base = {"duration": 180.0, "tempo": 120.0, "beatOffset": 0.20}
+    assert analysis.compare_audio(base, dict(base))["warnings"] == [], "identical -> no warnings"
+    assert analysis.compare_audio(base, {**base, "duration": 181.0})["warnings"] == ["duration"]
+    assert analysis.compare_audio(base, {**base, "tempo": 122.0})["warnings"] == ["tempo"]
+    assert analysis.compare_audio(base, {**base, "beatOffset": 0.40})["warnings"] == ["downbeat"]
+    within = analysis.compare_audio(base, {"duration": 180.3, "tempo": 120.5, "beatOffset": 0.25})
+    assert within["warnings"] == [], f"within tolerance must not warn: {within}"
+    cmp_full = analysis.compare_audio(base, {"duration": 200.0, "tempo": 90.0, "beatOffset": 1.0})
+    assert cmp_full["warnings"] == ["duration", "tempo", "downbeat"], cmp_full
+    assert cmp_full["old"]["tempo"] == 120.0 and cmp_full["new"]["tempo"] == 90.0, cmp_full
+    print("compare_audio   : ok (duration/tempo/downbeat tolerances)")
     print("OK")
 
 

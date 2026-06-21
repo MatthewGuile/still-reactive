@@ -388,3 +388,38 @@ def ensure_analysis(project_dir: str | Path) -> dict:
 
     meta["analysisReady"] = True
     return meta
+
+
+# Replace-audio comparison: a project's audio is swapped for a (usually
+# mastered) version of the same song. Warn when the new analysis drifts enough
+# to need a timing review; project timing is kept regardless.
+REPLACE_TOL = {"duration": 0.5, "tempo": 1.0, "beatOffset": 0.1}
+
+
+def read_analysis(project_dir: str | Path) -> dict | None:
+    """Read a project's cached analysis.json, or None if missing/invalid."""
+    path = Path(project_dir) / "analysis.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def compare_audio(old: dict, new: dict) -> dict:
+    """Old-vs-new audio comparison for the Replace-audio review. `old`/`new` are
+    analysis dicts (use duration/tempo/beatOffset). Returns
+    {old, new, warnings}; warnings is a list of codes:
+    "duration", "tempo", "downbeat"."""
+    keys = ("duration", "tempo", "beatOffset")
+    o = {k: float((old or {}).get(k, 0) or 0) for k in keys}
+    n = {k: float((new or {}).get(k, 0) or 0) for k in keys}
+    warnings = []
+    if abs(n["duration"] - o["duration"]) > REPLACE_TOL["duration"]:
+        warnings.append("duration")
+    if abs(n["tempo"] - o["tempo"]) > REPLACE_TOL["tempo"]:
+        warnings.append("tempo")
+    if abs(n["beatOffset"] - o["beatOffset"]) > REPLACE_TOL["beatOffset"]:
+        warnings.append("downbeat")
+    return {"old": o, "new": n, "warnings": warnings}
