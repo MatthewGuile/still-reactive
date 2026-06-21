@@ -53,6 +53,19 @@ behaviour stays covered by the pure/state-level rack tests. **To revive:** flip
 therefore on hold (the threshold + invert mapping model is preserved in the
 dormant code).
 
+**Snapshots RETIRED 2026-06-21** (branch `chore/retire-snapshots`) — roadmap
+item 2 **sub-project A** (save-model cleanup). The user-facing Snapshots feature
+is gone (UI, `state.snapshots`, `refreshSnapshots`/`saveSnapshot`/
+`restoreSnapshot`, `sanitizeSnapshots`, and the `buildSessionPayload`
+`includeSnapshots` branch). **Projects + autosave are now the entire save
+model** — a Project is the canonical saved work; per-project autosave/session
+restore is the invisible safety net. Undo/redo (`historySnapshot`/`history.stack`)
+is a separate system and untouched. Old sessions carrying a `snapshots` key are
+silently ignored (compatibility dropped). Frontend-only; determinism unaffected.
+**Next: sub-project B — Replace audio** (swap-audio sibling + analysis refresh +
+timing-review warnings); see
+[docs/superpowers/plans/2026-06-20-project-model-replace-audio.md](superpowers/plans/2026-06-20-project-model-replace-audio.md).
+
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
 user's own test videos.
