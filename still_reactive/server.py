@@ -122,7 +122,11 @@ async def replace_project_audio(pid: str, audio: UploadFile = File(...)):
         raise HTTPException(422, str(exc))
     new_analysis = await run_in_threadpool(
         analysis.read_analysis, store.project_dir(meta["id"]))
-    return {**meta, "comparison": analysis.compare_audio(old_analysis, new_analysis)}
+    # No prior analysis to compare against (shouldn't happen via the UI, which
+    # only replaces a loaded/analyzed project) -> no drift warnings.
+    comparison = (analysis.compare_audio(old_analysis, new_analysis)
+                  if old_analysis else {"old": {}, "new": new_analysis or {}, "warnings": []})
+    return {**meta, "comparison": comparison}
 
 
 @app.patch("/api/project/{pid}")

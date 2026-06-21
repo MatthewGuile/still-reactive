@@ -2582,7 +2582,7 @@ function replaceAudioMessage(cmp) {
       const d = (n.duration || 0) - (o.duration || 0);
       parts.push(`new file is ${Math.abs(d).toFixed(1)}s ${d > 0 ? 'longer' : 'shorter'} — check loop & end markers`);
     } else if (w === 'tempo') {
-      parts.push(`detected tempo ${o.tempo}->${n.tempo} BPM — beat grid may not line up; adjust BPM if needed`);
+      parts.push(`detected tempo ${(o.tempo || 0).toFixed(1)}->${(n.tempo || 0).toFixed(1)} BPM — beat grid may not line up; adjust BPM if needed`);
     } else if (w === 'downbeat') {
       parts.push(`downbeat/leading silence shifted ~${Math.abs((n.beatOffset || 0) - (o.beatOffset || 0)).toFixed(2)}s — check Bar 1`);
     }
