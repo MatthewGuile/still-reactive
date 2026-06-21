@@ -42,7 +42,6 @@ const state = {
   followStructure: false, // R5-P5: Energy macro tracks song sections
   followLocked: false,    // user hand-edited the generated lane → stop regen
   focus: true,            // R7-5: device panel shows one device at a time
-  snapshots: [],          // R7-4: [{name, ts, data}] named look checkpoints
   pendingLook: null,      // R9-1: look chosen in the start state, applied on load
   exporting: false,
   abortExport: false,
@@ -311,11 +310,9 @@ function redoAutomation() {
   restoreHistory(history.stack[history.index]);
 }
 
-// The full editable session as a plain object. `includeSnapshots` is false
-// when capturing a snapshot (a snapshot stores the look, never nested
-// snapshots).
-function buildSessionPayload(includeSnapshots = true) {
-  const data = {
+// The full editable session as a plain object.
+function buildSessionPayload() {
+  return {
     tempo: tempoMap.toJSON(),
     automation: automation.toJSON(),
     chain: state.chain,
@@ -330,8 +327,6 @@ function buildSessionPayload(includeSnapshots = true) {
     followLocked: state.followLocked,
     focus: state.focus,
   };
-  if (includeSnapshots) data.snapshots = state.snapshots;
-  return data;
 }
 
 let autosaveTimer = 0;
@@ -339,7 +334,7 @@ function autosaveAutomation() {
   if (!state.project) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => {
-    const payload = JSON.stringify(buildSessionPayload(true));
+    const payload = JSON.stringify(buildSessionPayload());
     try {
       localStorage.setItem(`sr:${state.project.id}`, payload);
     } catch (e) { /* storage full/disabled — non-fatal */ }
@@ -368,7 +363,6 @@ async function restoreAutomation(projectId) {
     } catch (e) { /* server copy unavailable — non-fatal */ }
   }
   if (!saved) return false;
-  if (Array.isArray(saved.snapshots)) state.snapshots = sanitizeSnapshots(saved.snapshots);
   return applySessionData(saved);
 }
 
@@ -417,13 +411,6 @@ function applySessionData(saved) {
   } catch (e) {
     return false;
   }
-}
-
-function sanitizeSnapshots(arr) {
-  return arr
-    .filter((s) => s && typeof s.name === 'string' && s.data)
-    .slice(0, 12)
-    .map((s) => ({ name: s.name.slice(0, 40), ts: s.ts || 0, data: s.data }));
 }
 
 // ------------------------------------------------------------ device chain
@@ -2464,7 +2451,6 @@ async function loadProject(meta) {
   loopRegion.endB = 0;
   loopRegion.on = false;
   songMarkers.length = 0;
-  state.snapshots = [];
   const restored = await restoreAutomation(id);
   // R10: a fresh project starts from a clean slate — the look comes from the
   // canvas fill / a chosen Look, not leftover params from the last project.
@@ -2485,7 +2471,6 @@ async function loadProject(meta) {
   inputStatus.textContent = '';
   updateMediaCard(meta);
   refreshLooks();
-  refreshSnapshots();
   applyMode();
   renderer.resetFeedback();
   playBtn.textContent = '▶';
@@ -2687,71 +2672,6 @@ function processThumbQueue() {
   }
   ctx.putImageData(img, 0, 0);
 }
-
-// ------------------------------------------------ R7-4: named snapshots
-
-function refreshSnapshots() {
-  const section = document.getElementById('snapshotSection');
-  const list = document.getElementById('snapshotList');
-  section.hidden = !state.project;
-  list.textContent = '';
-  state.snapshots.forEach((s, i) => {
-    const li = el('li', {
-      class: 'snap-row', title: 'restore this snapshot',
-      onclick: () => restoreSnapshot(i),
-    });
-    li.append(
-      el('span', { class: 'snap-name', text: s.name }),
-      el('button', {
-        class: 'mini-del', text: '×', title: 'delete snapshot',
-        onclick: (e) => {
-          e.stopPropagation();
-          state.snapshots.splice(i, 1);
-          refreshSnapshots();
-          autosaveAutomation();
-        },
-      }),
-    );
-    list.append(li);
-  });
-}
-
-function saveSnapshot() {
-  if (!state.project) { toast('Load a project first.'); return; }
-  const name = prompt('Snapshot name', `Snapshot ${state.snapshots.length + 1}`);
-  if (!name || !name.trim()) return;
-  state.snapshots.unshift({ name: name.trim().slice(0, 40), ts: Date.now(), data: buildSessionPayload(false) });
-  state.snapshots = state.snapshots.slice(0, 12); // bound size
-  refreshSnapshots();
-  autosaveAutomation();
-  toast(`Saved snapshot "${name.trim()}"`);
-}
-
-function restoreSnapshot(i) {
-  const snap = state.snapshots[i];
-  if (!snap) return;
-  closeLane();
-  songMarkers.length = 0;          // applySessionData pushes markers
-  applySessionData(snap.data);
-  syncChainToParams();
-  syncTransportLoop();
-  if (state.bank) {
-    state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
-    state.bank.setResponse(responseOf(params()));
-  }
-  applyTempoUI();
-  panel.focusMode = state.focus;
-  panel.rebuild();
-  buildRacksArea();
-  applyMode();
-  timeline.draw();
-  resetHistory();
-  renderer.resetFeedback();
-  autosaveAutomation();
-  toast(`Restored snapshot "${snap.name}"`);
-}
-
-document.getElementById('snapshotSave').addEventListener('click', saveSnapshot);
 
 // ------------------------------------------------ R8-2/3: Signal panel
 // Audio Response as a global signal panel (not a device): live spectrum,
@@ -3569,6 +3489,6 @@ Object.assign(window.__racks, { applyRackToProject });
 // Item 1: mapping correctness test hooks.
 Object.assign(window.__racks, { sanitizeRacks, updateMapping, resetMapping, removeMapping });
 // Task 5.1: session payload test hook.
-window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload(true));
+window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload());
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();

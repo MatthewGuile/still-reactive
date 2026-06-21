@@ -132,12 +132,15 @@ async function main() {
     !!idoc.getElementById('rackLibrary') && idoc.getElementById('rackLibrary').hidden === true);
   step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
     || idoc.querySelector('#savePresetBtn').offsetParent === null);
-  step('R7 UI present (Style dropdown gone / focus / snapshots / master)',
+  step('R7 UI present (Style dropdown gone / focus / master)',
     !idoc.getElementById('packSelect')
       && !!idoc.querySelector('.focus-toggle')
-      && !!idoc.getElementById('snapshotSave')
       && !!idoc.querySelector('#paramPanels [data-key="sharpOn"]')
       && !!idoc.querySelector('#paramPanels [data-key="outputOn"]'));
+  step('snapshots retired: no Snapshots UI',
+    idoc.getElementById('snapshotSection') === null
+      && idoc.getElementById('snapshotSave') === null
+      && idoc.getElementById('snapshotList') === null);
   step('R8: A/B fully removed from UI',
     !idoc.getElementById('abBtn') && !idoc.getElementById('abCopy'));
   step('R8: Signal panel present + Audio Response out of device stack',
@@ -1078,6 +1081,9 @@ async function main() {
     step('session payload carries racks (not macros/macroCount)',
       Array.isArray(payload.racks) && payload.macros === undefined
       && payload.racks.some((x) => x.name === 'Persisted'));
+    step('session payload omits snapshots', payload.snapshots === undefined,
+      JSON.stringify(Object.keys(payload)));
+    step('state has no snapshots field', W.__racks.state.snapshots === undefined);
     W.__racks.deleteRack(r.id);
   }
 

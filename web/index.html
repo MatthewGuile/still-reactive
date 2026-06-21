@@ -22,7 +22,7 @@
       <button id="signalBtn" class="ctl-btn workspace-tab" title="Audio Response — live spectrum, BPM, and what the music is driving">Signal ▾</button>
       <span class="spacer"></span>
       <input id="presetName" placeholder="preset name…" hidden>
-      <button id="savePresetBtn" class="ctl-btn" title="Save the current params + device chain as a reusable preset (no audio or automation). Snapshots — in the left panel — save the whole session instead." hidden>Save as preset</button>
+      <button id="savePresetBtn" class="ctl-btn" title="Save the current params + device chain as a reusable preset (no audio or automation)." hidden>Save as preset</button>
       <button id="exportPill" class="ctl-btn" hidden></button>
       <button id="exportBtn" class="primary">Export…</button>
     </header>
@@ -117,10 +117,6 @@
         <section id="rackLibrary">
           <h3>Rack presets</h3>
           <ul id="rackList" class="list"></ul>
-        </section>
-        <section id="snapshotSection" hidden>
-          <h3>Snapshots <button id="snapshotSave" class="ctl-btn ctl-mini" title="Save the whole session as a named checkpoint — params, chain, automation, tempo. (A preset, top-right, saves params + chain only.)">+ Save</button></h3>
-          <ul id="snapshotList" class="list"></ul>
         </section>
         <!-- R9-2: manage-previous-work, de-emphasised into a collapsible Library -->
         <details id="librarySection" class="library">
