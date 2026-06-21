@@ -2534,6 +2534,63 @@ swapImageInput.addEventListener('change', async () => {
   }
 });
 
+// Replace audio — new song bounce, same visual build. Mints a content-addressed
+// sibling server-side (creative state copied, analysis recomputed); the old
+// project stays in the Library for rollback. Project timing is kept (the copied
+// session restores tempoMap over the new analysis in loadProject).
+const replaceAudioInput = document.getElementById('replaceAudioInput');
+document.getElementById('replaceAudioBtn').addEventListener('click', () => {
+  if (!state.project) return;
+  replaceAudioInput.click();
+});
+replaceAudioInput.addEventListener('change', async () => {
+  const file = replaceAudioInput.files[0];
+  replaceAudioInput.value = '';
+  if (!file || !state.project) return;
+  inputStatus.textContent = 'replacing audio…';
+  try {
+    await saveSessionNow();                 // flush current build into the old session
+    const form = new FormData();
+    form.append('audio', file);
+    const resp = await fetch(`/api/project/${state.project.id}/audio`, {
+      method: 'POST', body: form,
+    });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const data = await resp.json();
+    if (data.id === state.project.id) {
+      inputStatus.textContent = '';
+      toast("That's the same audio file — nothing changed.");
+      return;
+    }
+    await loadProject(data);                 // new audio + analysis; copied session keeps build + timing
+    toast(replaceAudioMessage(data.comparison), 'info', 9000);
+  } catch (err) {
+    inputStatus.textContent = '';
+    toast(`Replace audio failed: ${err.message}`, 'error');
+  }
+});
+
+// Apply-then-warn message built from the server's old-vs-new comparison.
+function replaceAudioMessage(cmp) {
+  if (!cmp || !cmp.warnings || !cmp.warnings.length) {
+    return 'Audio replaced — same song, timing kept. Devices, racks, params, automation, markers and loop are unchanged.';
+  }
+  const o = cmp.old || {}, n = cmp.new || {};
+  const parts = ['Audio replaced (timing kept). Review:'];
+  for (const w of cmp.warnings) {
+    if (w === 'duration') {
+      const d = (n.duration || 0) - (o.duration || 0);
+      parts.push(`new file is ${Math.abs(d).toFixed(1)}s ${d > 0 ? 'longer' : 'shorter'} — check loop & end markers`);
+    } else if (w === 'tempo') {
+      parts.push(`detected tempo ${o.tempo}->${n.tempo} BPM — beat grid may not line up; adjust BPM if needed`);
+    } else if (w === 'downbeat') {
+      parts.push(`downbeat/leading silence shifted ~${Math.abs((n.beatOffset || 0) - (o.beatOffset || 0)).toFixed(2)}s — check Bar 1`);
+    }
+  }
+  parts.push('the previous version is still in your Library');
+  return parts.join(' · ');
+}
+
 // ------------------------------------------------------------ left panel
 
 // R6-3: the project library — thumbnails, rename, delete.

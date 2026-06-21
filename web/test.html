@@ -86,6 +86,8 @@ async function main() {
   step('R6 UI present (media card / swap / export pill+hide)',
     !!idoc.getElementById('mediaCard') && !!idoc.getElementById('swapImageBtn')
       && !!idoc.getElementById('exportPill') && !!idoc.getElementById('exportHide'));
+  step('replace-audio control present (media card)',
+    !!idoc.getElementById('replaceAudioBtn') && !!idoc.getElementById('replaceAudioInput'));
   step('R4/R5 UI present (canvas / device chain always visible)',
     !!idoc.getElementById('canvasFill')
       && !idoc.getElementById('viewToggle')
