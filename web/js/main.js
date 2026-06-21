@@ -9,7 +9,7 @@ import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
   PARAM_GROUPS, defaultChain, groupById, MOD_SOURCES, MOD_SEP,
   applyMacros, buildQuartet, MACRO_SLOTS, rackMacroKey,
-  autoGradeFromStats, rackToSaved, applyRackToState,
+  autoGradeFromStats, rackToSaved, applyRackToState, normalizeMapping,
 } from './params.js';
 import { STYLE_PACKS, getPack } from './packs.js';
 import { ParamPanel, el, toast, formatTime } from './ui.js';
@@ -285,7 +285,7 @@ function restoreHistory(snap) {
     if (state.bank) state.bank.setResponse(responseOf(params()));
   }
   if (Array.isArray(s.chain)) state.chain = s.chain.slice();
-  if (Array.isArray(s.racks)) { state.racks = s.racks; rebuildParamIndex(); }
+  if (Array.isArray(s.racks)) { state.racks = sanitizeRacks(s.racks); rebuildParamIndex(); }
   closeLaneIfMissingFromSchema();
   panel.rebuild();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
@@ -731,7 +731,9 @@ function sanitizeRacks(arr) {
     id: r.id, name: String(r.name || 'Rack').slice(0, 24),
     deviceIds: Array.isArray(r.deviceIds) ? r.deviceIds.filter((d) => groupById(d)) : [],
     macros: r.macros.filter(Boolean).slice(0, MACRO_SLOTS).map((m) => ({ name: String(m.name || 'Macro').slice(0, 24),
-      mappings: Array.isArray(m.mappings) ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max)) : [] })),
+      mappings: Array.isArray(m.mappings)
+        ? m.mappings.filter((mm) => mm && SCHEMA_INDEX[mm.key]).map((mm) => normalizeMapping(mm, SCHEMA_INDEX[mm.key]))
+        : [] })),
   }));
 }
 
@@ -3451,6 +3453,8 @@ Object.assign(window.__racks, { mapParamToMacro });
 Object.assign(window.__racks, { autoRack });
 // Task 4.4: apply saved rack to project.
 Object.assign(window.__racks, { applyRackToProject });
+// Item 1: mapping correctness test hooks.
+Object.assign(window.__racks, { sanitizeRacks });
 // Task 5.1: session payload test hook.
 window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload(true));
 // Task 5.2: undo test hook.

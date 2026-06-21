@@ -826,6 +826,38 @@ async function main() {
     } else {
       step('enum mapping: sub-range scans only options 1..2', true, 'skip: no enum param');
     }
+
+    // sanitizeRacks keeps a bool mapping that has no min/max (regression vs the
+    // old Number.isFinite(min/max) filter) and normalizes it.
+    {
+      const W = document.getElementById('appFrame').contentWindow;
+      const cleaned = W.__racks.sanitizeRacks([{
+        id: 'rkS', name: 'S', deviceIds: ['warp'],
+        macros: [{ name: 'T', mappings: [
+          { key: 'warpOn', threshold: 0.7, invert: true },   // new bool shape
+          { key: 'bloomAmount', min: 0.2, max: 0.6 },        // numeric
+          { key: 'doesNotExist', min: 0, max: 1 },           // dropped
+        ] }],
+      }]);
+      const maps = cleaned[0].macros[0].mappings;
+      const boolM = maps.find((m) => m.key === 'warpOn');
+      step('sanitizeRacks keeps + normalizes a bool mapping without min/max',
+        !!boolM && boolM.threshold === 0.7 && boolM.invert === true
+          && maps.length === 2, JSON.stringify(maps));
+    }
+
+    // applyRackToState normalizes a legacy bool mapping inside a saved rack
+    {
+      const { applyRackToState, defaultParams: dp3 } = await import('./js/params.js');
+      const savedLegacy = { name: 'Legacy', deviceIds: ['warp'],
+        params: {}, macros: [{ name: 'T', value: 0,
+          mappings: [{ key: 'warpOn', min: 0, max: 1 }] }] };  // legacy bool
+      const res = applyRackToState(savedLegacy, { chain: [], params: dp3(), racks: [] }, 'rkA');
+      const m = res.racks[0].macros[0].mappings[0];
+      step('applyRackToState normalizes legacy bool mapping to threshold/invert',
+        m.threshold === 0.5 && m.invert === false
+          && m.min === undefined && m.max === undefined, JSON.stringify(m));
+    }
   }
 
   const macroRackEl = idoc.getElementById('macroRack');

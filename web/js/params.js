@@ -774,12 +774,12 @@ export function applyRackToState(saved, snap, newId) {
     name: String((m && m.name) || 'Macro').slice(0, 24),
     mappings: Array.isArray(m && m.mappings)
       ? m.mappings
-        .filter((mm) => mm && idx[mm.key] && Number.isFinite(mm.min) && Number.isFinite(mm.max))
+        .filter((mm) => mm && idx[mm.key])
         .map((mm) => {
           mappedKeys.add(mm.key);
           const group = idx[mm.key].group;
           if (groupById(group)) deviceIds.add(group);
-          return { ...mm };
+          return normalizeMapping(mm, idx[mm.key]);
         })
       : [],
   }));
