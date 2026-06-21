@@ -762,6 +762,72 @@ async function main() {
     step('applyMacros deterministic', out2.bloomAmount === out.bloomAmount);
   }
 
+  // Item 1 -- mapping correctness: bool threshold/invert, enum sub-range,
+  // numeric custom range, and normalizeMapping migration (pure).
+  {
+    const { applyMacros, normalizeMapping, paramIndex } = await import('./js/params.js');
+    const idxM = paramIndex();
+
+    // bool: custom threshold flips on at/above the threshold
+    const boolRack = { id: 'rkB', name: 'B', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', threshold: 0.7, invert: false }] }] };
+    const b40 = applyMacros({ 'rkB.m1': 0.4, warpOn: false }, [boolRack]).warpOn;
+    const b80 = applyMacros({ 'rkB.m1': 0.8, warpOn: false }, [boolRack]).warpOn;
+    step('bool mapping: custom threshold flips at 0.7',
+      b40 === false && b80 === true, `at0.4=${b40} at0.8=${b80}`);
+
+    // bool: invert reverses the crossover (on below threshold)
+    const invRack = { id: 'rkI', name: 'I', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', threshold: 0.5, invert: true }] }] };
+    const i20 = applyMacros({ 'rkI.m1': 0.2, warpOn: false }, [invRack]).warpOn;
+    const i80 = applyMacros({ 'rkI.m1': 0.8, warpOn: false }, [invRack]).warpOn;
+    step('bool mapping: invert reverses (on below threshold)',
+      i20 === true && i80 === false, `at0.2=${i20} at0.8=${i80}`);
+
+    // legacy bool mapping ({min,max}, no threshold) still resolves at 0.5
+    const legacyRack = { id: 'rkL', name: 'L', deviceIds: ['warp'],
+      macros: [{ name: 'T', mappings: [{ key: 'warpOn', min: 0, max: 1 }] }] };
+    const l40 = applyMacros({ 'rkL.m1': 0.4, warpOn: false }, [legacyRack]).warpOn;
+    const l60 = applyMacros({ 'rkL.m1': 0.6, warpOn: false }, [legacyRack]).warpOn;
+    step('bool mapping: legacy min/max defaults to threshold 0.5',
+      l40 === false && l60 === true, `at0.4=${l40} at0.6=${l60}`);
+
+    // normalizeMapping migrates legacy bool -> {threshold, invert}, drops min/max
+    const nb = normalizeMapping({ key: 'warpOn', min: 0, max: 1 }, idxM.warpOn);
+    step('normalizeMapping: legacy bool -> threshold 0.5 / invert false, no min/max',
+      nb.threshold === 0.5 && nb.invert === false
+        && nb.min === undefined && nb.max === undefined, JSON.stringify(nb));
+
+    // normalizeMapping bare {key} -> full numeric schema range
+    const nNum = normalizeMapping({ key: 'bloomAmount' }, idxM.bloomAmount);
+    step('normalizeMapping: numeric bare key -> full schema range',
+      Math.abs(nNum.min - idxM.bloomAmount.min) < 1e-6
+        && Math.abs(nNum.max - idxM.bloomAmount.max) < 1e-6, JSON.stringify(nNum));
+
+    // numeric custom range scans that range
+    const numRack = { id: 'rkN', name: 'N', deviceIds: ['bloom'],
+      macros: [{ name: 'T', mappings: [{ key: 'bloomAmount', min: 0.2, max: 0.6 }] }] };
+    const n0 = applyMacros({ 'rkN.m1': 0, bloomAmount: 0 }, [numRack]).bloomAmount;
+    const n1 = applyMacros({ 'rkN.m1': 1, bloomAmount: 0 }, [numRack]).bloomAmount;
+    step('numeric mapping: scans custom range 0.2..0.6',
+      Math.abs(n0 - 0.2) < 1e-6 && Math.abs(n1 - 0.6) < 1e-6, `at0=${n0} at1=${n1}`);
+
+    // enum sub-range scans only the chosen options
+    const enumKey = Object.keys(idxM).find(
+      (k) => idxM[k].type === 'enum' && idxM[k].options && idxM[k].options.length >= 4);
+    if (enumKey) {
+      const opts = idxM[enumKey].options;
+      const enRack = { id: 'rkE', name: 'E', deviceIds: [],
+        macros: [{ name: 'T', mappings: [{ key: enumKey, min: 1, max: 2 }] }] };
+      const e0 = applyMacros({ 'rkE.m1': 0, [enumKey]: opts[0] }, [enRack])[enumKey];
+      const e1 = applyMacros({ 'rkE.m1': 1, [enumKey]: opts[0] }, [enRack])[enumKey];
+      step('enum mapping: sub-range scans only options 1..2',
+        e0 === opts[1] && e1 === opts[2], `at0=${e0} at1=${e1}`);
+    } else {
+      step('enum mapping: sub-range scans only options 1..2', true, 'skip: no enum param');
+    }
+  }
+
   const macroRackEl = idoc.getElementById('macroRack');
   // R9-3: with no project the rack shows the empty state; cells/quartet/follow
   // live in the macro rack only once a project is loaded (verified via the

@@ -687,16 +687,49 @@ export function applyMacros(p, racks) {
       for (const m of maps) {
         const s = MACRO_SCHEMA[m.key];
         if (!s) continue;
-        const val = m.min + (m.max - m.min) * v;
-        if (s.type === 'bool') out[m.key] = val >= 0.5;
-        else if (s.type === 'enum') {
-          const idx = Math.round(Math.min(Math.max(val, 0), s.options.length - 1));
-          out[m.key] = s.options[idx];
-        } else out[m.key] = val;
+        if (s.type === 'bool') {
+          const thr = Number.isFinite(m.threshold) ? m.threshold : 0.5;
+          out[m.key] = m.invert ? v < thr : v >= thr;
+        } else {
+          const val = m.min + (m.max - m.min) * v;
+          if (s.type === 'enum') {
+            const idx = Math.round(Math.min(Math.max(val, 0), s.options.length - 1));
+            out[m.key] = s.options[idx];
+          } else out[m.key] = val;
+        }
       }
     }
   }
   return out || p;
+}
+
+// Re-derive a mapping's fields from the live schema entry `s` for mm.key.
+// Idempotent. Serves three roles: migration (legacy bool {min,max} -> threshold),
+// creation default (a bare {key} -> type defaults), and edit validation
+// (clamp to schema range, integer enum indices, enforce min < max).
+export function normalizeMapping(mm, s) {
+  const key = mm.key;
+  if (!s) return { ...mm };            // unknown key: callers filter these out
+  if (s.type === 'bool') {
+    let threshold = Number.isFinite(mm.threshold) ? mm.threshold : 0.5;
+    threshold = Math.min(Math.max(threshold, 0), 1);
+    return { key, threshold, invert: !!mm.invert };
+  }
+  if (s.type === 'enum') {
+    const last = s.options.length - 1;
+    let lo = Number.isInteger(mm.min) ? mm.min : 0;
+    let hi = Number.isInteger(mm.max) ? mm.max : last;
+    lo = Math.min(Math.max(lo, 0), last);
+    hi = Math.min(Math.max(hi, 0), last);
+    if (lo >= hi) { lo = 0; hi = last; }       // invalid -> full range
+    return { key, min: lo, max: hi };
+  }
+  // numeric
+  const clamp = (x) => Math.min(Math.max(x, s.min), s.max);
+  let lo = Number.isFinite(mm.min) ? clamp(mm.min) : s.min;
+  let hi = Number.isFinite(mm.max) ? clamp(mm.max) : s.max;
+  if (lo >= hi) { lo = s.min; hi = s.max; }    // invalid -> full range
+  return { key, min: lo, max: hi };
 }
 
 // Serialize a live rack instance to a portable saved rack. Mapped params are
