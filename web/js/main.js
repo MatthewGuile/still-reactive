@@ -778,7 +778,9 @@ function updateMapping(rackId, macroIdx, j, patch) {
   return next;
 }
 
-// Item 1: reset a mapping back to its schema default range/threshold.
+// Item 1: reset a mapping back to its schema default range/threshold. Unlike
+// updateMapping, this calls buildRacksArea() (rebuilds the rack area, closing
+// the disclosure) since it changes multiple fields at once.
 function resetMapping(rackId, macroIdx, j) {
   const rack = state.racks.find((x) => x.id === rackId);
   if (!rack || !rack.macros[macroIdx]) return;
@@ -1073,7 +1075,8 @@ function buildMacroCell(rack, j) {
     } else if (s.type === 'enum') {
       const mkSel = (cls, val) => {
         const sel = el('select', { class: cls });
-        (s.options || []).forEach((opt, oi) => sel.append(el('option', { value: oi, text: String(opt), selected: oi === val })));
+        (s.options || []).forEach((opt, oi) => sel.append(el('option', { value: oi, text: String(opt) })));
+        sel.value = String(val);
         return sel;
       };
       const loSel = mkSel('map-enum-lo', mm.min);

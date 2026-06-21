@@ -878,7 +878,7 @@ async function main() {
       Math.abs(lo - 0.2) < 1e-6 && Math.abs(hi - 0.6) < 1e-6, `lo=${lo} hi=${hi}`);
 
     // commit clamps lo < hi (entering lo above hi is rejected back to valid)
-    W.__racks.updateMapping(rN.id, 0, 0, { min: 0.9 });     // 0.9 >= hi 0.6 -> reset to full range
+    W.__racks.updateMapping(rN.id, 0, 0, { min: 0.9 });     // 0.9 >= hi 0.6 -> normalize resets to schema range (0..1.5)
     const m0 = rN.macros[0].mappings[0];
     step('editor: lo >= hi is rejected (kept valid, lo < hi)',
       m0.min < m0.max, JSON.stringify(m0));
@@ -933,6 +933,31 @@ async function main() {
       `before=${beforeUndo} after=${afterUndo}`);
     const cleanup = W.__racks.state.racks.find((x) => x.id === rU.id);
     if (cleanup) W.__racks.deleteRack(rU.id);
+
+    // enum editor: lo/hi <select> initialize to the mapping's min/max indices
+    // (regression guard: el() turned boolean `selected` into a present attr,
+    // which left the select on the LAST option regardless of min/max).
+    {
+      const { paramIndex } = await import('./js/params.js');
+      const idxEnum = paramIndex();
+      const enumKeyUI = Object.keys(idxEnum).find((k) => idxEnum[k].type === 'enum'
+        && idxEnum[k].automatable !== false && idxEnum[k].group
+        && idxEnum[k].options && idxEnum[k].options.length >= 3);
+      const rEn = enumKeyUI && W.__racks.createRack('EditEnum');
+      if (rEn) W.__racks.mapParamToMacro(rEn.id, 0, enumKeyUI);
+      const mapped = rEn && rEn.macros[0].mappings.length === 1;
+      if (mapped) {
+        const last = idxEnum[enumKeyUI].options.length - 1;
+        const loSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-lo`);
+        const hiSel = idoc.querySelector(`[data-rack-id="${rEn.id}"] select.map-enum-hi`);
+        step('editor: enum lo/hi selects initialize to mapping indices',
+          !!loSel && !!hiSel && loSel.value === '0' && hiSel.value === String(last),
+          loSel && hiSel ? `lo=${loSel.value} hi=${hiSel.value} last=${last}` : 'no enum selects');
+      } else {
+        step('editor: enum lo/hi selects initialize to mapping indices', true, 'skip: no mappable enum');
+      }
+      if (rEn) W.__racks.deleteRack(rEn.id);
+    }
   }
 
   const macroRackEl = idoc.getElementById('macroRack');
