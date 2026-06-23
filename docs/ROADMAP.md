@@ -76,8 +76,22 @@ file, and `loadProject`s the sibling — **project timing is kept** automaticall
 **apply-then-warn** toast on drift. The **old project stays in the Library =
 free rollback**; identical audio dedupes. No checksum, no modal, no
 accept-new-timing. Determinism unaffected. **Item 2 (project model cleanup +
-replace audio) is COMPLETE.** Next roadmap item: **3 — UI settings + Focus
-default.**
+replace audio) is COMPLETE.**
+
+**UI settings + Focus default SHIPPED 2026-06-23** (branch
+`feat/ui-settings-focus`) — roadmap item 3. Focus mode is now an **app-global UI
+preference**, not per-project state: a new `sr:ui-prefs` localStorage store
+(`loadUiPrefs`/`saveUiPrefs`/`UI_PREFS_DEFAULTS`, default `focus:true`) is read
+into `state.focus` at boot, and `focus` is removed from `buildSessionPayload`,
+`applySessionData`, and the project-load re-sync. The **inline Focus toggle is
+gone** from the Devices add-bar (the `ParamPanel.setFocusMode` collapse mechanism
+stays). A topbar **`⚙` gear** opens a shortcuts-style **Settings popover**
+(`.settings-pop`, outside-click/Esc/re-click to dismiss) housing the single Focus
+checkbox — the escape hatch (uncheck for the full-detail surface), wired to
+`state.focus` + `panel.setFocusMode` + `saveUiPrefs`. Local UI pref only;
+**render determinism unaffected** (Focus was never a render input). Old saves
+carrying a `focus` key are silently ignored (compatibility dropped). Next roadmap
+item: **4 — R16-P0 onset & tempo detection accuracy.**
 
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
@@ -118,10 +132,13 @@ round numbers below are historical labels, not priority.
    (see "Current state"). Sub-project A retired Snapshots (Projects + autosave
    are the save model); sub-project B added Replace audio (content-addressed
    swap-audio sibling, re-analysis, keep-timing/apply-then-warn, free rollback).
-3. **UI settings + Focus default.** Default the device area to Focus mode, hide
-   the inline Focus-mode control from the Devices surface, and add a Settings
-   button that opens a dialog for UI preferences. Treat these as local UI
-   preferences, not render/project state.
+3. **UI settings + Focus default.** ✅ **SHIPPED 2026-06-23** (branch
+   `feat/ui-settings-focus`; see "Current state"). Focus is now an app-global UI
+   preference (`sr:ui-prefs` localStorage, default on), off the per-project
+   session payload; the inline Focus toggle is gone from the Devices add-bar; a
+   topbar `⚙` gear opens a shortcuts-style Settings popover housing the Focus
+   checkbox (the escape hatch). Local UI pref only — render determinism
+   unaffected.
 4. **R16-P0 — onset & tempo detection accuracy.** Refine tempo from the onset
    train, make displayed onsets more selective, and make onset marks legible.
    This restores trust in the timeline/audio analysis without waiting for the
