@@ -1454,3 +1454,30 @@ input[type="range"]:focus-visible {
 }
 .shortcuts-pop dt { color: var(--text); white-space: nowrap; }
 .shortcuts-pop dd { color: var(--text-dim); margin: 0; }
+
+/* ----------------------------------- item 3: UI settings popover */
+.settings-pop {
+  position: fixed;
+  z-index: 80;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  max-width: 280px;
+}
+.settings-pop h4 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.settings-row .settings-text { display: flex; flex-direction: column; }
+.settings-row strong { color: var(--text); font-weight: 600; }

@@ -160,6 +160,33 @@ async function main() {
     idoc.defaultView.__racks.state.focus === true,
     `state.focus=${idoc.defaultView.__racks.state.focus}`);
 
+  // Item 3 — Settings gear + popover + persistence.
+  const setBtn = idoc.getElementById('settingsBtn');
+  step('item3: settings gear present', !!setBtn);
+  let popOpened = false, hasFocusCb = false, persisted = false, popClosed = false;
+  if (setBtn) {
+    setBtn.click();
+    const pop = idoc.querySelector('.settings-pop');
+    popOpened = !!pop;
+    const cb = pop && pop.querySelector('input[type="checkbox"]');
+    hasFocusCb = !!cb;
+    if (cb) {
+      const before = idoc.defaultView.__racks.state.focus;
+      cb.checked = !before;
+      cb.dispatchEvent(new idoc.defaultView.Event('change', { bubbles: true }));
+      const prefs = JSON.parse(idoc.defaultView.localStorage.getItem('sr:ui-prefs') || '{}');
+      persisted = idoc.defaultView.__racks.state.focus === !before && prefs.focus === !before;
+      // restore the default-on state
+      cb.checked = true;
+      cb.dispatchEvent(new idoc.defaultView.Event('change', { bubbles: true }));
+    }
+    setBtn.click(); // re-click toggles the popover closed
+    popClosed = !idoc.querySelector('.settings-pop');
+  }
+  step('item3: settings popover opens with a Focus checkbox', popOpened && hasFocusCb);
+  step('item3: toggling Focus persists to sr:ui-prefs + state', persisted);
+  step('item3: re-clicking the gear closes the popover', popClosed);
+
   // 2 — render frames through the real pipeline
   const { Renderer } = await import('./js/renderer.js');
   const { FeatureBank } = await import('./js/features.js');

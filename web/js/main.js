@@ -1583,6 +1583,56 @@ shortcutsBtn.addEventListener('click', (e) => {
   if (shortcutsPop) closeShortcuts(); else openShortcuts();
 });
 
+// ----------------------------------------------- UI settings popover (item 3)
+const settingsBtn = document.getElementById('settingsBtn');
+let settingsPop = null;
+function onSettingsDown(e) {
+  if (settingsPop && !settingsPop.contains(e.target) && e.target !== settingsBtn) closeSettings();
+}
+function onSettingsKey(e) {
+  if (e.key === 'Escape') closeSettings();
+}
+function closeSettings() {
+  if (!settingsPop) return;
+  settingsPop.remove();
+  settingsPop = null;
+  document.removeEventListener('pointerdown', onSettingsDown);
+  document.removeEventListener('keydown', onSettingsKey);
+}
+function openSettings() {
+  closeSettings();
+  const focusCb = el('input', {
+    type: 'checkbox',
+    onchange: (e) => {
+      state.focus = e.target.checked;
+      panel.setFocusMode(state.focus);
+      saveUiPrefs({ focus: state.focus });
+    },
+  });
+  focusCb.checked = state.focus; // property, not attribute (el routes unknowns to setAttribute)
+  settingsPop = el('div',
+    { class: 'settings-pop', role: 'dialog', 'aria-label': 'UI settings' },
+    el('h4', { text: 'UI settings' }),
+    el('label', { class: 'settings-row' },
+      focusCb,
+      el('span', { class: 'settings-text' },
+        el('strong', { text: 'Focus mode' }),
+        el('span', { class: 'hint', text: 'work on one device at a time' }))));
+  document.body.append(settingsPop);
+  const b = settingsBtn.getBoundingClientRect();
+  const r = settingsPop.getBoundingClientRect();
+  settingsPop.style.left = `${Math.max(8, Math.min(b.left, window.innerWidth - r.width - 8))}px`;
+  settingsPop.style.top = `${Math.min(window.innerHeight - r.height - 8, b.bottom + 6)}px`;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', onSettingsDown);
+    document.addEventListener('keydown', onSettingsKey);
+  }, 0);
+}
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (settingsPop) closeSettings(); else openSettings();
+});
+
 function showQuickMenu(key, cx, cy) {
   const s = SCHEMA_INDEX[key];
   if (!s || s.type === 'enum' || s.type === 'bool') {
