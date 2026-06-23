@@ -152,6 +152,14 @@ async function main() {
     !!idoc.querySelector('.master-divider') && !!idoc.querySelector('details.group.master'));
   step('app boots: no window error', !idoc.title.startsWith('ERR'), idoc.title);
 
+  // Item 3 — Focus is a local UI pref, not project state.
+  step('item3: focus removed from session payload',
+    !('focus' in JSON.parse(idoc.defaultView.__buildSessionPayload())),
+    Object.keys(JSON.parse(idoc.defaultView.__buildSessionPayload())).join(','));
+  step('item3: focus defaults on at boot',
+    idoc.defaultView.__racks.state.focus === true,
+    `state.focus=${idoc.defaultView.__racks.state.focus}`);
+
   // 2 — render frames through the real pipeline
   const { Renderer } = await import('./js/renderer.js');
   const { FeatureBank } = await import('./js/features.js');

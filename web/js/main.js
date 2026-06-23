@@ -325,8 +325,25 @@ function buildSessionPayload() {
     reframe: state.reframe,
     followStructure: state.followStructure,
     followLocked: state.followLocked,
-    focus: state.focus,
   };
+}
+
+// ----------------------------------------------- local UI preferences (item 3)
+// App-global, NOT per-project, NOT in renders. Key is distinct from the
+// per-project `sr:${projectId}` autosave key.
+const UI_PREFS_DEFAULTS = { focus: true };
+function loadUiPrefs() {
+  try {
+    const raw = localStorage.getItem('sr:ui-prefs');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object') return { ...UI_PREFS_DEFAULTS, ...parsed };
+  } catch (e) { /* corrupt/disabled — fall back to defaults */ }
+  return { ...UI_PREFS_DEFAULTS };
+}
+function saveUiPrefs(prefs) {
+  try {
+    localStorage.setItem('sr:ui-prefs', JSON.stringify(prefs));
+  } catch (e) { /* storage full/disabled — non-fatal */ }
 }
 
 let autosaveTimer = 0;
@@ -398,7 +415,6 @@ function applySessionData(saved) {
     if (STYLE_PACKS.some((p) => p.id === saved.packId)) state.packId = saved.packId;
     state.followStructure = !!saved.followStructure;
     state.followLocked = !!saved.followLocked;
-    if (saved.focus !== undefined) state.focus = !!saved.focus;
     if (saved.reframe) {
       for (const k of Object.keys(state.reframe)) {
         const r = saved.reframe[k];
@@ -698,8 +714,8 @@ const panel = new ParamPanel(document.getElementById('paramPanels'), {
   laneState: laneStateOf,
   isMapped: (key) => isMappedKey(key),
 });
+state.focus = loadUiPrefs().focus;   // app-global UI pref, not project state
 panel.focusMode = state.focus;
-panel.onFocusChange = (on) => { state.focus = on; autosaveAutomation(); };
 
 window.onerror = (msg, src, line) => {
   toast(`Error: ${msg} (${src ? src.split('/').pop() : '?'}:${line})`, 'error', 12000);
@@ -2461,7 +2477,6 @@ async function loadProject(meta) {
   // restored params may carry different response/crossover settings
   state.bank.setResponse(responseOf(params()));
   applyTempoUI();
-  panel.focusMode = state.focus;
   panel.rebuild();
   buildRacksArea();
   resetHistory();
