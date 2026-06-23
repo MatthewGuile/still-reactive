@@ -134,9 +134,9 @@ async function main() {
     !!idoc.getElementById('rackLibrary') && idoc.getElementById('rackLibrary').hidden === true);
   step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
     || idoc.querySelector('#savePresetBtn').offsetParent === null);
-  step('R7 UI present (Style dropdown gone / focus / master)',
+  step('R7 UI present (Style dropdown gone / inline focus toggle removed / master)',
     !idoc.getElementById('packSelect')
-      && !!idoc.querySelector('.focus-toggle')
+      && !idoc.querySelector('.focus-toggle')
       && !!idoc.querySelector('#paramPanels [data-key="sharpOn"]')
       && !!idoc.querySelector('#paramPanels [data-key="outputOn"]'));
   step('snapshots retired: no Snapshots UI',

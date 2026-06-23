@@ -1146,9 +1146,6 @@ input[type="range"].driven::-moz-range-thumb {
 .map-reveal { cursor: pointer; }
 .map-reveal:hover { color: var(--accent); text-decoration: underline; }
 
-/* R7: focus toggle */
-.focus-toggle.active { border-color: var(--accent); color: var(--accent); }
-
 /* R8-3: Master Output strip — visually distinct, locked finishing section */
 .master-divider {
   align-items: baseline;
