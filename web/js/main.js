@@ -325,8 +325,25 @@ function buildSessionPayload() {
     reframe: state.reframe,
     followStructure: state.followStructure,
     followLocked: state.followLocked,
-    focus: state.focus,
   };
+}
+
+// ----------------------------------------------- local UI preferences (item 3)
+// App-global, NOT per-project, NOT in renders. Key is distinct from the
+// per-project `sr:${projectId}` autosave key.
+const UI_PREFS_DEFAULTS = { focus: true };
+function loadUiPrefs() {
+  try {
+    const raw = localStorage.getItem('sr:ui-prefs');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object') return { ...UI_PREFS_DEFAULTS, ...parsed };
+  } catch (e) { /* corrupt/disabled — fall back to defaults */ }
+  return { ...UI_PREFS_DEFAULTS };
+}
+function saveUiPrefs(prefs) {
+  try {
+    localStorage.setItem('sr:ui-prefs', JSON.stringify(prefs));
+  } catch (e) { /* storage full/disabled — non-fatal */ }
 }
 
 let autosaveTimer = 0;
@@ -398,7 +415,6 @@ function applySessionData(saved) {
     if (STYLE_PACKS.some((p) => p.id === saved.packId)) state.packId = saved.packId;
     state.followStructure = !!saved.followStructure;
     state.followLocked = !!saved.followLocked;
-    if (saved.focus !== undefined) state.focus = !!saved.focus;
     if (saved.reframe) {
       for (const k of Object.keys(state.reframe)) {
         const r = saved.reframe[k];
@@ -698,8 +714,8 @@ const panel = new ParamPanel(document.getElementById('paramPanels'), {
   laneState: laneStateOf,
   isMapped: (key) => isMappedKey(key),
 });
+state.focus = loadUiPrefs().focus;   // app-global UI pref, not project state
 panel.focusMode = state.focus;
-panel.onFocusChange = (on) => { state.focus = on; autosaveAutomation(); };
 
 window.onerror = (msg, src, line) => {
   toast(`Error: ${msg} (${src ? src.split('/').pop() : '?'}:${line})`, 'error', 12000);
@@ -1565,6 +1581,56 @@ function openShortcuts() {
 shortcutsBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   if (shortcutsPop) closeShortcuts(); else openShortcuts();
+});
+
+// ----------------------------------------------- UI settings popover (item 3)
+const settingsBtn = document.getElementById('settingsBtn');
+let settingsPop = null;
+function onSettingsDown(e) {
+  if (settingsPop && !settingsPop.contains(e.target) && e.target !== settingsBtn) closeSettings();
+}
+function onSettingsKey(e) {
+  if (e.key === 'Escape') closeSettings();
+}
+function closeSettings() {
+  if (!settingsPop) return;
+  settingsPop.remove();
+  settingsPop = null;
+  document.removeEventListener('pointerdown', onSettingsDown);
+  document.removeEventListener('keydown', onSettingsKey);
+}
+function openSettings() {
+  closeSettings();
+  const focusCb = el('input', {
+    type: 'checkbox',
+    onchange: (e) => {
+      state.focus = e.target.checked;
+      panel.setFocusMode(state.focus);
+      saveUiPrefs({ focus: state.focus });
+    },
+  });
+  focusCb.checked = state.focus; // property, not attribute (el routes unknowns to setAttribute)
+  settingsPop = el('div',
+    { class: 'settings-pop', role: 'dialog', 'aria-label': 'UI settings' },
+    el('h4', { text: 'UI settings' }),
+    el('label', { class: 'settings-row' },
+      focusCb,
+      el('span', { class: 'settings-text' },
+        el('strong', { text: 'Focus mode' }),
+        el('span', { class: 'hint', text: 'work on one device at a time' }))));
+  document.body.append(settingsPop);
+  const b = settingsBtn.getBoundingClientRect();
+  const r = settingsPop.getBoundingClientRect();
+  settingsPop.style.left = `${Math.max(8, Math.min(b.left, window.innerWidth - r.width - 8))}px`;
+  settingsPop.style.top = `${Math.min(window.innerHeight - r.height - 8, b.bottom + 6)}px`;
+  setTimeout(() => {
+    document.addEventListener('pointerdown', onSettingsDown);
+    document.addEventListener('keydown', onSettingsKey);
+  }, 0);
+}
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (settingsPop) closeSettings(); else openSettings();
 });
 
 function showQuickMenu(key, cx, cy) {
@@ -2461,7 +2527,6 @@ async function loadProject(meta) {
   // restored params may carry different response/crossover settings
   state.bank.setResponse(responseOf(params()));
   applyTempoUI();
-  panel.focusMode = state.focus;
   panel.rebuild();
   buildRacksArea();
   resetHistory();

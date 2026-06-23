@@ -134,9 +134,9 @@ async function main() {
     !!idoc.getElementById('rackLibrary') && idoc.getElementById('rackLibrary').hidden === true);
   step('parked preset UI hidden', idoc.querySelector('#savePresetBtn') === null
     || idoc.querySelector('#savePresetBtn').offsetParent === null);
-  step('R7 UI present (Style dropdown gone / focus / master)',
+  step('R7 UI present (Style dropdown gone / inline focus toggle removed / master)',
     !idoc.getElementById('packSelect')
-      && !!idoc.querySelector('.focus-toggle')
+      && !idoc.querySelector('.focus-toggle')
       && !!idoc.querySelector('#paramPanels [data-key="sharpOn"]')
       && !!idoc.querySelector('#paramPanels [data-key="outputOn"]'));
   step('snapshots retired: no Snapshots UI',
@@ -151,6 +151,41 @@ async function main() {
   step('R8: Master section has a distinct divider',
     !!idoc.querySelector('.master-divider') && !!idoc.querySelector('details.group.master'));
   step('app boots: no window error', !idoc.title.startsWith('ERR'), idoc.title);
+
+  // Item 3 — Focus is a local UI pref, not project state.
+  step('item3: focus removed from session payload',
+    !('focus' in JSON.parse(idoc.defaultView.__buildSessionPayload())),
+    Object.keys(JSON.parse(idoc.defaultView.__buildSessionPayload())).join(','));
+  step('item3: focus defaults on at boot',
+    idoc.defaultView.__racks.state.focus === true,
+    `state.focus=${idoc.defaultView.__racks.state.focus}`);
+
+  // Item 3 — Settings gear + popover + persistence.
+  const setBtn = idoc.getElementById('settingsBtn');
+  step('item3: settings gear present', !!setBtn);
+  let popOpened = false, hasFocusCb = false, persisted = false, popClosed = false;
+  if (setBtn) {
+    setBtn.click();
+    const pop = idoc.querySelector('.settings-pop');
+    popOpened = !!pop;
+    const cb = pop && pop.querySelector('input[type="checkbox"]');
+    hasFocusCb = !!cb;
+    if (cb) {
+      const before = idoc.defaultView.__racks.state.focus;
+      cb.checked = !before;
+      cb.dispatchEvent(new idoc.defaultView.Event('change', { bubbles: true }));
+      const prefs = JSON.parse(idoc.defaultView.localStorage.getItem('sr:ui-prefs') || '{}');
+      persisted = idoc.defaultView.__racks.state.focus === !before && prefs.focus === !before;
+      // restore the default-on state
+      cb.checked = true;
+      cb.dispatchEvent(new idoc.defaultView.Event('change', { bubbles: true }));
+    }
+    setBtn.click(); // re-click toggles the popover closed
+    popClosed = !idoc.querySelector('.settings-pop');
+  }
+  step('item3: settings popover opens with a Focus checkbox', popOpened && hasFocusCb);
+  step('item3: toggling Focus persists to sr:ui-prefs + state', persisted);
+  step('item3: re-clicking the gear closes the popover', popClosed);
 
   // 2 — render frames through the real pipeline
   const { Renderer } = await import('./js/renderer.js');

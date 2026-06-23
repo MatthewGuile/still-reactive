@@ -73,7 +73,6 @@ export class ParamPanel {
     this.openDevices = new Set(PARAM_GROUPS.filter((g) => g.open).map((g) => g.id));
     this.openAdv = new Set(); // devices whose More… tail is unfolded
     this.focusMode = true;    // R7-5: expanding a device collapses the others
-    this.onFocusChange = null;
     this.build();
   }
 
@@ -89,8 +88,6 @@ export class ParamPanel {
         }
       }
     }
-    const btn = this.container.querySelector('.focus-toggle');
-    if (btn) btn.classList.toggle('active', on);
   }
 
   // Rebuild from scratch (after the chain changes).
@@ -298,16 +295,7 @@ export class ParamPanel {
         }));
       }
     }
-    const focusBtn = el('button', {
-      class: `ctl-btn focus-toggle${this.focusMode ? ' active' : ''}`,
-      text: 'Focus',
-      title: 'Focus mode: expanding a device collapses the others (work one at a time)',
-      onclick: () => {
-        this.setFocusMode(!this.focusMode);
-        if (this.onFocusChange) this.onFocusChange(this.focusMode);
-      },
-    });
-    bar.append(btn, focusBtn, el('span', {
+    bar.append(btn, el('span', {
       class: 'hint chain-hint',
       text: 'devices render in this fixed order',
     }), pop);
