@@ -73,7 +73,6 @@ export class ParamPanel {
     this.openDevices = new Set(PARAM_GROUPS.filter((g) => g.open).map((g) => g.id));
     this.openAdv = new Set(); // devices whose More… tail is unfolded
     this.focusMode = true;    // R7-5: expanding a device collapses the others
-    this.onFocusChange = null;
     this.build();
   }
 
