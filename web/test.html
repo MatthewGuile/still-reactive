@@ -193,6 +193,43 @@ async function main() {
       ce.max.length === 5 && ce.max.every((v) => v === 0));
   }
 
+  // Timeline waveform — render integration via the __timeline hook
+  {
+    const W = idoc.defaultView;
+    const tl = W.__timeline;
+    step('waveform: timeline hook exposed', !!tl && !!tl.canvas);
+    if (tl && tl.canvas) {
+      const { WaveformPeaks } = await import('./js/waveform.js');
+      const w = tl.canvas.width, h = tl.canvas.height;
+
+      // no-op guard: no waveform set → _drawWave must not throw
+      tl.wave = null;
+      let threw = false;
+      try { tl._drawWave(w, h, tl.dpr); } catch (e) { threw = true; }
+      step('waveform: _drawWave no-ops without a waveform', !threw);
+
+      // synthetic 4s buffer with on-beat transients
+      const sr = 8000, secs = 4, N = sr * secs;
+      const ch = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        const t = i / sr, ph = (t * 4) % 1;
+        ch[i] = Math.sin(t * 900) * (0.15 + 0.7 * Math.exp(-ph * 6));
+      }
+      tl.duration = secs; tl.pxPerSec = 0; tl.viewStart = 0; tl.time = 0;
+      tl.setWaveform(new WaveformPeaks([ch], sr));
+      step('waveform: setWaveform stores it', tl.wave instanceof WaveformPeaks);
+
+      // paint just the wave and count painted pixels in the wave band
+      tl.ctx.clearRect(0, 0, w, h);
+      tl._drawWave(w, h, tl.dpr);
+      const band = tl.ctx.getImageData(0, Math.floor(h * 0.45), w, Math.max(Math.floor(h * 0.1), 1)).data;
+      let painted = 0;
+      for (let i = 3; i < band.length; i += 4) if (band[i] > 0) painted++;
+      step('waveform: style B paints the wave band', painted > 50, `painted=${painted}`);
+      tl.setWaveform(null); // restore clean state for later tests
+    }
+  }
+
   // Item 3 — Focus is a local UI pref, not project state.
   step('item3: focus removed from session payload',
     !('focus' in JSON.parse(idoc.defaultView.__buildSessionPayload())),

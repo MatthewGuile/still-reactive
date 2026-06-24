@@ -4,6 +4,7 @@ import { Renderer } from './renderer.js';
 import { FeatureBank, modValues, applyModulation } from './features.js';
 import { Transport } from './audio.js';
 import { Timeline } from './timeline.js';
+import { WaveformPeaks } from './waveform.js';
 import { snapBeats } from './automation.js';
 import {
   defaultParams, paramIndex, migrateLegacyParams, RESPONSE_KEYS,
@@ -2483,6 +2484,15 @@ stage.addEventListener('drop', (e) => {
   tryCreateProject();
 });
 
+// Build the timeline waveform from the decoded audio (client-side, zoom-adaptive).
+function setTimelineWaveform() {
+  const buf = transport.buffer;
+  if (!buf) { timeline.setWaveform(null); return; }
+  const chans = [];
+  for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+  timeline.setWaveform(new WaveformPeaks(chans, buf.sampleRate));
+}
+
 async function loadProject(meta) {
   inputStatus.textContent = 'loading assets…';
   const id = meta.id;
@@ -2533,6 +2543,7 @@ async function loadProject(meta) {
   resetHistory();
 
   timeline.setBank(state.bank);
+  setTimelineWaveform();
   document.getElementById('dropHint').style.display = 'none';
   inputStatus.textContent = '';
   updateMediaCard(meta);
@@ -3597,6 +3608,9 @@ window.__rebuild = {
   clearRackLanes,                       // Task 2.3: orphan-lane cleanup helper
   automation,                           // Task 2.3: live AutomationSet instance
 };
+
+// Timeline waveform test hook (Spec 1).
+window.__timeline = timeline;
 
 // Task 3.1 test hook: rack CRUD. Later tasks Object.assign() their own fns.
 // ADDITIVE ONLY — do not reference functions that don't exist yet (Tasks 3.2+).

@@ -48,6 +48,7 @@ export class Timeline {
     this.time = 0;
     this.duration = 0;
     this.viewStart = 0;      // seconds at the left edge
+    this.wave = null;        // WaveformPeaks (set by main when audio decodes)
     this.pxPerSec = 0;       // css px per second; 0 = fit whole song
     this.drag = null;
 
@@ -175,6 +176,11 @@ export class Timeline {
     this.duration = bank ? bank.duration : 0;
     this.viewStart = 0;
     this.pxPerSec = 0;
+    this.draw();
+  }
+
+  setWaveform(wave) {
+    this.wave = wave;
     this.draw();
   }
 
@@ -790,29 +796,44 @@ export class Timeline {
   }
 
   _drawWave(w, h, dpr) {
-    const { ctx, bank } = this;
-    const peaks = bank.wavePeaks;
-    const n = peaks.length;
+    const { ctx, wave } = this;
+    if (!wave) return; // no decoded audio yet → grid/playhead still draw
     const top = RULER_H * dpr;
     const mid = top + (h - top) * 0.5;
     const amp = (h - top) * 0.46;
-    const span = this.duration / n;
-    const pps = this._pps();
+    const cols = wave.columns(this.viewStart, this.viewStart + this._viewSeconds(), w);
     const playedX = this.xOf(this.time);
     const alpha = this.laneKey ? 0.3 : 1;
 
-    const i0 = Math.max(Math.floor(this.viewStart / span), 0);
-    const i1 = Math.min(Math.ceil((this.viewStart + this._viewSeconds()) / span), n - 1);
-    for (let i = i0; i <= i1; i++) {
-      const x = this.xOf(i * span);
-      const bw = Math.max(span * pps - dpr, dpr);
-      const ph = Math.max(peaks[i] * amp, dpr);
-      const played = x <= playedX;
-      ctx.fillStyle = played
-        ? `rgba(122,162,255,${alpha})`
-        : `rgba(61,68,86,${alpha})`;
-      ctx.fillRect(x, mid - ph, bw, ph * 2);
-    }
+    const fillEnv = (yTop, yBot, color) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(0, yTop(0));
+      for (let x = 1; x < w; x++) ctx.lineTo(x, yTop(x));
+      for (let x = w - 1; x >= 0; x--) ctx.lineTo(x, yBot(x));
+      ctx.closePath();
+      ctx.fill();
+    };
+    const pass = (played) => {
+      ctx.save();
+      ctx.beginPath();
+      if (played) ctx.rect(0, top, playedX, h - top);
+      else ctx.rect(playedX, top, w - playedX, h - top);
+      ctx.clip();
+      // dim peak (min/max) envelope
+      fillEnv(
+        (x) => mid - cols.max[x] * amp,
+        (x) => mid - cols.min[x] * amp,
+        played ? `rgba(73,97,153,${alpha})` : `rgba(45,50,64,${alpha})`);
+      // bright RMS core
+      fillEnv(
+        (x) => mid - cols.rms[x] * amp,
+        (x) => mid + cols.rms[x] * amp,
+        played ? `rgba(122,162,255,${alpha})` : `rgba(70,88,106,${alpha})`);
+      ctx.restore();
+    };
+    pass(true);
+    pass(false);
   }
 
   // Dim everything before bar 1 so leading silence reads as "pre-roll".
