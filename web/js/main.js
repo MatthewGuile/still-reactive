@@ -1621,7 +1621,8 @@ function openSettings() {
   document.body.append(settingsPop);
   const b = settingsBtn.getBoundingClientRect();
   const r = settingsPop.getBoundingClientRect();
-  settingsPop.style.left = `${Math.max(8, Math.min(b.left, window.innerWidth - r.width - 8))}px`;
+  // right-align the popover under the gear (it now sits near the right edge)
+  settingsPop.style.left = `${Math.max(8, Math.min(b.right - r.width, window.innerWidth - r.width - 8))}px`;
   settingsPop.style.top = `${Math.min(window.innerHeight - r.height - 8, b.bottom + 6)}px`;
   setTimeout(() => {
     document.addEventListener('pointerdown', onSettingsDown);
