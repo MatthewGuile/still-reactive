@@ -152,6 +152,47 @@ async function main() {
     !!idoc.querySelector('.master-divider') && !!idoc.querySelector('details.group.master'));
   step('app boots: no window error', !idoc.title.startsWith('ERR'), idoc.title);
 
+  // Timeline waveform (Spec 1) — WaveformPeaks pure logic
+  {
+    const { WaveformPeaks } = await import('./js/waveform.js');
+
+    // raw path (samplesPerCol < BUCKET=512): constant 0.2 with a transient block
+    const sr1 = 1000, n1 = 1000;
+    const ch1 = new Float32Array(n1).fill(0.2);
+    for (let i = 500; i < 520; i++) ch1[i] = 1.0;
+    const wp1 = new WaveformPeaks([ch1], sr1);
+    const c1 = wp1.columns(0, 1, 10); // samplesPerCol = 100 < 512 → raw
+    step('waveform: columns returns 3 Float32Arrays of width length',
+      c1.min.length === 10 && c1.max.length === 10 && c1.rms.length === 10
+        && c1.max instanceof Float32Array);
+    step('waveform: raw path captures the transient column',
+      c1.max[5] > 0.9 && c1.max[0] < 0.3 && Math.abs(c1.rms[0] - 0.2) < 1e-2,
+      `max5=${c1.max[5].toFixed(2)} max0=${c1.max[0].toFixed(2)} rms0=${c1.rms[0].toFixed(2)}`);
+
+    // bucket path (samplesPerCol >= BUCKET)
+    const sr2 = 2000, n2 = 8000;
+    const ch2 = new Float32Array(n2).fill(0.1);
+    for (let i = 4000; i < 4100; i++) ch2[i] = 1.0;
+    const wp2 = new WaveformPeaks([ch2], sr2);
+    const c2 = wp2.columns(0, 4, 8); // samplesPerCol = 1000 >= 512 → buckets
+    step('waveform: bucket path surfaces the transient',
+      c2.max[4] > 0.9 && c2.max[0] < 0.2,
+      `max4=${c2.max[4].toFixed(2)} max0=${c2.max[0].toFixed(2)}`);
+
+    // mono averaging of two channels: avg(0.8, 0.2) = 0.5
+    const L = new Float32Array(2000).fill(0.8);
+    const R = new Float32Array(2000).fill(0.2);
+    const cm = new WaveformPeaks([L, R], 1000).columns(0, 2, 4);
+    step('waveform: averages channels to mono',
+      Math.abs(cm.max[0] - 0.5) < 1e-3 && Math.abs(cm.rms[0] - 0.5) < 1e-3,
+      `max=${cm.max[0].toFixed(3)} rms=${cm.rms[0].toFixed(3)}`);
+
+    // empty buffer → zero columns, no throw
+    const ce = new WaveformPeaks([new Float32Array(0)], 1000).columns(0, 1, 5);
+    step('waveform: empty buffer yields zero columns (no throw)',
+      ce.max.length === 5 && ce.max.every((v) => v === 0));
+  }
+
   // Item 3 — Focus is a local UI pref, not project state.
   step('item3: focus removed from session payload',
     !('focus' in JSON.parse(idoc.defaultView.__buildSessionPayload())),
