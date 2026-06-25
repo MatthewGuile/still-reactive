@@ -68,6 +68,9 @@ export class WaveformPeaks {
           cnt++;
         }
       } else {
+        // Combine buckets as sqrt(mean(bucketRms^2)). Exact when buckets are
+        // equal-size; the track's final partial bucket is weighted equally, a
+        // negligible cosmetic RMS bias on at most the last column. Intentional.
         const b0 = Math.floor(i0 / this.BUCKET);
         const b1 = Math.min(Math.floor((i1 - 1) / this.BUCKET), this.bMin.length - 1);
         for (let b = b0; b <= b1; b++) {
