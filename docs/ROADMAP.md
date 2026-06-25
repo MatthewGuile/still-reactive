@@ -90,8 +90,21 @@ stays). A topbar **`⚙` gear** opens a shortcuts-style **Settings popover**
 checkbox — the escape hatch (uncheck for the full-detail surface), wired to
 `state.focus` + `panel.setFocusMode` + `saveUiPrefs`. Local UI pref only;
 **render determinism unaffected** (Focus was never a render input). Old saves
-carrying a `focus` key are silently ignored (compatibility dropped). Next roadmap
-item: **4 — R16-P0 onset & tempo detection accuracy.**
+carrying a `focus` key are silently ignored (compatibility dropped).
+
+**Timeline waveform SHIPPED 2026-06-24** (branch `feat/timeline-waveform`) — the
+first half of roadmap item 4, split out as an independent precursor. The timeline
+waveform is now drawn **client-side from the decoded `AudioBuffer`** via a pure
+`WaveformPeaks` cache (`web/js/waveform.js`): a min/max/RMS bucket cache
+(`BUCKET=512`) that serves per-pixel-column data, aggregating buckets when zoomed
+out and reading raw samples when deep-zoomed — so it stays crisp at any zoom
+instead of the old blocky 1200-bin `wavePeaks`. Rendered in **style B** (dim peak
+envelope + bright RMS core), preserving the played/unplayed split and lane
+dimming; built/set in `loadProject` (Replace audio inherits it). Determinism
+unaffected (timeline chrome, never a render input); no analysis change — the now
+unused `wavePeaks` field is dropped later by the onsets/tempo spec, which owns the
+v3→v4 cache bump. Next roadmap item: **4 — R16-P0 onset & tempo detection
+accuracy (RC1/RC2/RC3)**, the second half of item 4.
 
 **Personal tool:** the user is the target user, refining requirements
 through use. No external-user validation. Reactivity confirmed via the
@@ -481,6 +494,16 @@ ships before the full map UI** because tempo handling bit in real use
   Re-derive them from a percussive / low-mid-weighted flux. Pairs with R16-P0's
   tempo-accuracy fix.
 
+**Timeline / waveform** (from the 2026-06-24 waveform spec)
+- **Colored multiband waveform mode.** Low/mid/high bands as separate colours on
+  the timeline waveform, aligned to the Signal UI crossovers (from `bank.bands` +
+  `bandEdges`), shown as a **toggleable mode** (messy if always-on). The
+  `_drawWave` two-tone renderer is shaped to accept a per-band column source as an
+  additive branch; `WaveformPeaks` retains the per-channel arrays for any future
+  per-channel/stereo-emphasis view.
+- **Scrolling-waveform device.** A render-output visual device that draws a
+  waveform scrolling in sync with the song — a creative device, not timeline
+  chrome.
 
 **Grading & creative devices** (archive §7, R3)
 - R3-P3 — remaining full grading suite: LUT infrastructure (`.cube` upload) +
