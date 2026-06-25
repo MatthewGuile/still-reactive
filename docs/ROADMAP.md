@@ -164,8 +164,12 @@ round numbers below are historical labels, not priority.
    **Slice 1b SHIPPED 2026-06-25** (branch `feat/triggers-signal-viewing`): a
    **Triggers** section in the Signal panel — detect per-band recipe sets
    (band + selectivity) — shown as color-coded ticks on the timeline, with a
-   per-set show toggle and a Settings "Show trigger overlays" default. Next:
-   **Slice 2** (triggers as modulation sources), then **Slice 3** (editing).
+   per-set show toggle and a Settings "Show trigger overlays" default.
+   **Slice 2 SHIPPED 2026-06-25** (branch `feat/trigger-modulation`): trigger
+   sets are now **deterministic modulation sources** — each fires a decaying
+   pulse (`triggerEnvelope`, pure in t) routed via the mod matrix (`trg:<id>`
+   sources in every param's mod menu), with a per-set decay control. Next:
+   **Slice 3** (editing — drag/add/delete individual triggers + named custom sets).
    Restores trust in the timeline/audio analysis and is the foundation for the
    trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,

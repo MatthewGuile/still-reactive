@@ -1227,6 +1227,7 @@ details.group.master {
 .trg-row { align-items: center; display: flex; font-size: 11px; gap: 6px; }
 .trg-swatch { border-radius: 2px; flex: 0 0 10px; height: 10px; }
 .trg-name { flex: 1; color: var(--text); }
+.trg-decay { flex: 0 0 60px; }
 .sig-map-row { display: flex; font-size: 11px; gap: 6px; margin: 2px 0; }
 .sig-map-src { color: var(--accent); flex: 0 0 64px; }
 .sig-map-tgt { color: var(--text-dim); }
