@@ -2561,7 +2561,7 @@ async function loadProject(meta) {
 
   timeline.setBank(state.bank);
   setTimelineWaveform();
-  pushTriggerOverlays();
+  refreshTriggerSources();
   document.getElementById('dropHint').style.display = 'none';
   inputStatus.textContent = '';
   updateMediaCard(meta);
@@ -3000,7 +3000,7 @@ function buildTriggersSection() {
           id: `trg${Date.now().toString(36)}`,
           name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
           band: pendBand, selectivity: pendSel,
-          color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], show: true,
+          color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], show: true, decay: 0.18,
         });
         autosaveAutomation(); refreshTriggers();
       },
@@ -3011,13 +3011,18 @@ function buildTriggersSection() {
     list.append(el('div', { class: 'trg-row' },
       el('span', { class: 'trg-swatch', style: `background:${set.color}` }),
       el('span', { class: 'trg-name', text: `${set.name} · ${count}` }),
+      el('input', {
+        type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18,
+        class: 'trg-decay', title: 'decay (s) — how long each pulse lasts',
+        oninput: (e) => { set.decay = parseFloat(e.target.value); autosaveAutomation(); refreshTriggerSources(); },
+      }),
       el('button', {
         class: 'ctl-btn ctl-mini', text: set.show ? 'Shown' : 'Hidden', title: 'show on the timeline',
         onclick: () => { set.show = !set.show; autosaveAutomation(); refreshTriggers(); },
       }),
       el('button', {
         class: 'ctl-btn ctl-mini', text: '×', title: 'delete set',
-        onclick: () => { state.triggerSets = state.triggerSets.filter((s) => s !== set); autosaveAutomation(); refreshTriggers(); },
+        onclick: () => { sweepDeletedSource(set.id); state.triggerSets = state.triggerSets.filter((s) => s !== set); autosaveAutomation(); refreshTriggers(); },
       })));
   }
   box.append(list);
@@ -3025,11 +3030,28 @@ function buildTriggersSection() {
 
 function refreshTriggers() {
   buildTriggersSection();
+  refreshTriggerSources();
+}
+
+// Slice 2: recompute the bank's trigger modulation sources (all sets) + overlay.
+function refreshTriggerSources() {
+  if (state.bank) {
+    state.bank.setTriggerSources(state.triggerSets.map((s) => ({
+      id: s.id, decay: s.decay, triggers: deriveTriggerSet(s, state.bank),
+    })));
+  }
   pushTriggerOverlays();
 }
 
+// Slice 2: drop a deleted set's stale `<param>~trg:<id>` depth/config keys.
+function sweepDeletedSource(id) {
+  const suffix = `${MOD_SEP}trg:${id}`;
+  for (const k of Object.keys(state.params || {})) {
+    if (k.includes(suffix)) delete state.params[k];
+  }
+}
+
 // Slice 1b: push shown trigger sets (derived ticks) to the timeline overlay.
-// (Replaced with band-aware logic when the overlay lands; stub keeps refreshes safe.)
 function pushTriggerOverlays() {
   const on = state.triggerOverlays !== false;
   const sets = (on && state.bank)
@@ -3721,7 +3743,7 @@ window.__rebuild = {
 
 // Timeline waveform test hook (Spec 1).
 window.__timeline = timeline;
-window.__triggers = { state, deriveTriggerSet }; // Slice 1b/2 test hook
+window.__triggers = { state, deriveTriggerSet, sweepDeletedSource }; // Slice 1b/2 test hook
 window.__getModSources = () => modSourceList();
 window.__panelRebuild = () => panel.rebuild();
 

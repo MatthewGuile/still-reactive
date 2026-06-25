@@ -269,6 +269,14 @@ async function main() {
     const opts = [...idoc.querySelectorAll('#paramPanels .mod-select option')].map((o) => o.value);
     step('triggers2: mod dropdown lists the trigger set', opts.includes('trg:Z9'), `opts=${opts.length}`);
     W.__triggers.state.triggerSets = []; W.__panelRebuild();
+    // deleting a set sweeps its stale depth keys
+    W.__triggers.state.params = W.__triggers.state.params || {};
+    W.__triggers.state.params['exposure~trg:D1'] = 0.5;
+    W.__triggers.state.params['exposure~trg:D1@th'] = 0.2;
+    W.__triggers.sweepDeletedSource('D1');
+    step('triggers2: deleting a set sweeps its depth keys',
+      W.__triggers.state.params['exposure~trg:D1'] === undefined
+        && W.__triggers.state.params['exposure~trg:D1@th'] === undefined);
   }
 
   // Timeline waveform — render integration via the __timeline hook
