@@ -259,6 +259,18 @@ async function main() {
       moved[tgt] > SC[tgt].min, `${tgt}: ${SC[tgt].min} -> ${moved[tgt]}`);
   }
 
+  // Slice 2 — trigger sets appear as routable modulation sources
+  {
+    const W = idoc.defaultView;
+    W.__triggers.state.triggerSets = [{ id: 'Z9', name: 'KickZ', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18 }];
+    step('triggers2: getModSources includes trigger sets',
+      !!W.__getModSources && W.__getModSources().some((s) => s.value === 'trg:Z9' && s.label === 'KickZ'));
+    W.__panelRebuild();
+    const opts = [...idoc.querySelectorAll('#paramPanels .mod-select option')].map((o) => o.value);
+    step('triggers2: mod dropdown lists the trigger set', opts.includes('trg:Z9'), `opts=${opts.length}`);
+    W.__triggers.state.triggerSets = []; W.__panelRebuild();
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

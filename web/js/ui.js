@@ -43,6 +43,7 @@ export class ParamPanel {
     getChain = null, onAddDevice = null, onRemoveDevice = null,
     onResetDevice = null, onAutoGrade = null, onAutomationMenu = null,
     onCommit = null, isMapped = () => false,
+    getModSources = () => MOD_SOURCES.map((s) => ({ value: s, label: s })),
   }) {
     this.container = container;
     // Base-value edits become undoable: a range slider fires 'change' on
@@ -65,6 +66,8 @@ export class ParamPanel {
     this.onAutoGrade = onAutoGrade;
     this.onCommit = onCommit;
     this.isMapped = isMapped;
+    this.getModSources = getModSources;
+    this._trg = {};
     this.inputs = new Map();   // key -> input element
     this.autoBtns = new Map(); // key -> automation LED button
     this.modBtns = new Map();  // base key -> ∿ disclosure button
@@ -326,7 +329,7 @@ export class ParamPanel {
     const pv = () => this.getParams();
 
     const select = el('select', { class: 'mod-select', title: 'modulation source' });
-    for (const src of MOD_SOURCES) select.append(el('option', { value: src, text: src }));
+    for (const src of this.getModSources()) select.append(el('option', { value: src.value, text: src.label }));
     const depth = el('input', {
       type: 'range', min: -1, max: 1, step: 0.01, class: 'mod-depth',
       title: 'depth (bipolar — negative ducks on energy; double-click resets)',
@@ -374,7 +377,8 @@ export class ParamPanel {
     };
     const sync = () => {
       if (!ctrl.src) {
-        ctrl.src = MOD_SOURCES.find((s2) => pv()[keyFor(s2)]) || MOD_SOURCES[0];
+        const opts = [...select.options].map((o) => o.value);
+        ctrl.src = opts.find((s2) => pv()[keyFor(s2)]) || opts[0];
       }
       select.value = ctrl.src;
       row1.setAttribute('data-key', keyFor(ctrl.src)); // macro Map-mode target
@@ -436,8 +440,12 @@ export class ParamPanel {
     ctrl.strip = strip;
     ctrl.sync = sync;
     ctrl.updateMeter = (sources) => {
-      const idx = MOD_SOURCES.indexOf(ctrl.src);
-      if (idx >= 0) meterFill.style.width = `${Math.min(sources[idx], 1) * 100}%`;
+      if (ctrl.src && ctrl.src.startsWith('trg:')) {
+        meterFill.style.width = `${Math.min(this._trg[ctrl.src.slice(4)] || 0, 1) * 100}%`;
+      } else {
+        const idx = MOD_SOURCES.indexOf(ctrl.src);
+        if (idx >= 0) meterFill.style.width = `${Math.min(sources[idx], 1) * 100}%`;
+      }
     };
     this.modStrips.set(p.key, ctrl);
 
@@ -626,7 +634,8 @@ export class ParamPanel {
   // modulation) differs from their base follow it live with an orange thumb;
   // idle sliders show the base. Also feeds the source meters of any open
   // modulation editors. Never touches a slider the user is holding.
-  updateLiveValues(eff, sources) {
+  updateLiveValues(eff, sources, trg) {
+    this._trg = trg || {};
     const params = this.getParams();
     for (const [key, entry] of this.live) {
       const { input, schema } = entry;

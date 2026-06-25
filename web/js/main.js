@@ -718,6 +718,7 @@ const panel = new ParamPanel(document.getElementById('paramPanels'), {
   onAutomationMenu: (key, e) => showQuickMenu(key, e.clientX, e.clientY),
   laneState: laneStateOf,
   isMapped: (key) => isMappedKey(key),
+  getModSources: () => modSourceList(),
 });
 state.focus = loadUiPrefs().focus;   // app-global UI pref, not project state
 state.triggerOverlays = loadUiPrefs().triggerOverlays;  // Slice 1b: overlay default
@@ -2961,6 +2962,15 @@ function deriveTriggerSet(set, bank) {
   return detectTriggers((bank.triggerCandidates || {})[set.band] || [], set.selectivity);
 }
 
+// Slice 2: routable modulation sources = the fixed audio sources + one per
+// trigger set (value `trg:<id>`, labeled by name).
+function modSourceList() {
+  return [
+    ...MOD_SOURCES.map((s) => ({ value: s, label: s })),
+    ...state.triggerSets.map((ts) => ({ value: `trg:${ts.id}`, label: ts.name })),
+  ];
+}
+
 function buildTriggersSection() {
   const box = document.getElementById('signalTriggers');
   if (!box) return;
@@ -3680,7 +3690,7 @@ function frame(now) {
   liveTickFrame = (liveTickFrame + 1) % 3;
   if (liveTickFrame === 0) {       // ~20 Hz is plenty for the displays
     const eff = applyModulation(ep, feat);
-    panel.updateLiveValues(eff, modValues(feat));
+    panel.updateLiveValues(eff, modValues(feat), feat.trg);
     drawSignal(feat);
   }
 }
@@ -3711,7 +3721,9 @@ window.__rebuild = {
 
 // Timeline waveform test hook (Spec 1).
 window.__timeline = timeline;
-window.__triggers = { state, deriveTriggerSet }; // Slice 1b test hook
+window.__triggers = { state, deriveTriggerSet }; // Slice 1b/2 test hook
+window.__getModSources = () => modSourceList();
+window.__panelRebuild = () => panel.rebuild();
 
 // Task 3.1 test hook: rack CRUD. Later tasks Object.assign() their own fns.
 // ADDITIVE ONLY — do not reference functions that don't exist yet (Tasks 3.2+).
