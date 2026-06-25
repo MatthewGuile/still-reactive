@@ -19,6 +19,24 @@ export function modValues(feat) {
   ];
 }
 
+// Decaying-pulse envelope of a trigger set at time t: sum of strengthᵢ·e^-(t-tᵢ)/decay
+// over triggers within ~5·decay before t, clamped 0..1. `sorted` is ascending by t.
+// Pure in (sorted, decay, t) → preview == export; binary-searched window so it is
+// correct at any t (seek/export), not only forward playback.
+export function triggerEnvelope(sorted, decay, t) {
+  if (!sorted || !sorted.length || decay <= 0) return 0;
+  const tau = decay, cutoff = t - 5 * tau;
+  let lo = 0, hi = sorted.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m].t < cutoff) lo = m + 1; else hi = m; }
+  let v = 0;
+  for (let i = lo; i < sorted.length; i++) {
+    const dt = t - sorted[i].t;
+    if (dt < 0) break;
+    v += sorted[i].s * Math.exp(-dt / tau);
+  }
+  return v > 1 ? 1 : v;
+}
+
 // Per-parameter modulation: every `target~src` depth key in `p` adds
 // depth × signal × (param range) to its target, clamped to the schema range.
 // Optional per-depth config keys shape the signal first:
@@ -39,10 +57,16 @@ export function applyModulation(p, feat) {
     if (!depth) continue;
     const s = SCHEMA[k.slice(0, sep)];
     if (!s || s.type) continue; // continuous targets only
-    const si = MOD_SOURCES.indexOf(k.slice(sep + 1));
-    if (si < 0) continue;
-    if (!sv) sv = modValues(feat);
-    let sig = sv[si];
+    const src = k.slice(sep + 1);
+    let sig;
+    if (src.startsWith('trg:')) {
+      sig = (feat.trg && feat.trg[src.slice(4)]) || 0;
+    } else {
+      const si = MOD_SOURCES.indexOf(src);
+      if (si < 0) continue;
+      if (!sv) sv = modValues(feat);
+      sig = sv[si];
+    }
     const th = p[`${k}@th`];
     if (th > 0) {
       sig = p[`${k}@gate`]
@@ -112,6 +136,7 @@ export class FeatureBank {
     this.onsets = analysis.onsets || [];
     this.sections = analysis.sections || [0];
     this.triggerCandidates = analysis.triggers || {};
+    this.triggerSources = []; // Slice 2: [{id, triggers:[{t,s}] sorted, decay}]
     this.smoothed = {};
     this._b16 = new Float32Array(16); // reused per sample() — Spectrum feed
     this.setResponse({});
@@ -122,6 +147,21 @@ export class FeatureBank {
   setTempo(bpm, offset) {
     this.tempo = bpm > 0 ? bpm : 0;
     this.beatOffset = offset || 0;
+  }
+
+  // Slice 2: active trigger sets as modulation sources (derived, sorted triggers).
+  setTriggerSources(sources) {
+    this.triggerSources = (Array.isArray(sources) ? sources : []).map((s) => ({
+      id: s.id,
+      decay: s.decay > 0 ? s.decay : 0.18,
+      triggers: (s.triggers || []).slice().sort((a, b) => a.t - b.t),
+    }));
+  }
+
+  _sampleTriggers(t) {
+    const out = {};
+    for (const src of this.triggerSources) out[src.id] = triggerEnvelope(src.triggers, src.decay, t);
+    return out;
   }
 
   // Derive low/mid/high from the multiband set for the given crossovers:
@@ -248,6 +288,7 @@ export class FeatureBank {
       beatPhase,
       section: this.sectionIndex(t),
       bands16: this._b16,
+      trg: this._sampleTriggers(t),
     };
   }
 }

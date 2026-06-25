@@ -232,6 +232,33 @@ async function main() {
     }
   }
 
+  // Slice 2 — trigger modulation envelope + source resolution
+  {
+    const { triggerEnvelope, FeatureBank: FB2, applyModulation: applyMod2 } = await import('./js/features.js');
+    const sorted = [{ t: 1.0, s: 1.0 }, { t: 2.0, s: 0.5 }];
+    step('triggers2: envelope is 0 before the first trigger',
+      triggerEnvelope(sorted, 0.2, 0.5) === 0);
+    step('triggers2: envelope = strength at the trigger',
+      Math.abs(triggerEnvelope(sorted, 0.2, 1.0) - 1.0) < 1e-6);
+    step('triggers2: envelope decays to ~s/e one decay later',
+      Math.abs(triggerEnvelope(sorted, 0.2, 1.2) - Math.exp(-1)) < 1e-3,
+      `${triggerEnvelope(sorted, 0.2, 1.2).toFixed(3)}`);
+    step('triggers2: deterministic at arbitrary t (order-independent)',
+      triggerEnvelope(sorted, 0.2, 2.05) === triggerEnvelope(sorted, 0.2, 2.05));
+    const bank2 = new FB2({ frameRate: 50, frames: 10, duration: 2, tempo: 0, beatOffset: 0,
+      rms: [0], low: [0], mid: [0], high: [0], onsetEnv: [0], onsets: [], sections: [0],
+      triggers: { low: [] }, bands: null, bandEdges: null });
+    bank2.setTriggerSources([{ id: 'A', triggers: [{ t: 1.0, s: 1.0 }], decay: 0.2 }]);
+    const f = bank2.sample(1.0);
+    step('triggers2: sample().trg carries the envelope', Math.abs(f.trg.A - 1.0) < 1e-6, `${f.trg && f.trg.A}`);
+    const SC = (await import('./js/params.js')).paramIndex();
+    const tgt = Object.keys(SC).find((k) => SC[k] && !SC[k].type && SC[k].automatable);
+    const p0 = { [tgt]: SC[tgt].min, [`${tgt}~trg:A`]: 1, audReact: 1 };
+    const moved = applyMod2(p0, f);
+    step('triggers2: applyModulation moves a target from a trg: source',
+      moved[tgt] > SC[tgt].min, `${tgt}: ${SC[tgt].min} -> ${moved[tgt]}`);
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;
