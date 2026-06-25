@@ -161,15 +161,15 @@ async function main() {
     const ch1 = new Float32Array(n1).fill(0.2);
     for (let i = 500; i < 520; i++) ch1[i] = 1.0;
     const wp1 = new WaveformPeaks([ch1], sr1);
-    const c1 = wp1.columns(0, 1, 10); // samplesPerCol = 100 < 512 → raw
+    const c1 = wp1.columns(0, 1, 10); // fine zoom: a few columns share a bucket
     step('waveform: columns returns 3 Float32Arrays of width length',
       c1.min.length === 10 && c1.max.length === 10 && c1.rms.length === 10
         && c1.max instanceof Float32Array);
-    step('waveform: raw path captures the transient column',
+    step('waveform: captures a transient at fine zoom (bucket aggregation)',
       c1.max[5] > 0.9 && c1.max[0] < 0.3 && Math.abs(c1.rms[0] - 0.2) < 1e-2,
       `max5=${c1.max[5].toFixed(2)} max0=${c1.max[0].toFixed(2)} rms0=${c1.rms[0].toFixed(2)}`);
 
-    // bucket path (samplesPerCol >= BUCKET)
+    // wide zoom: a column spans many buckets
     const sr2 = 2000, n2 = 8000;
     const ch2 = new Float32Array(n2).fill(0.1);
     for (let i = 4000; i < 4100; i++) ch2[i] = 1.0;
@@ -227,55 +227,33 @@ async function main() {
       for (let i = 3; i < band.length; i += 4) if (band[i] > 0) painted++;
       step('waveform: style B paints the wave band', painted > 50, `painted=${painted}`);
 
-      // regression (bug 2026-06-25): zooming in must not collapse the waveform to
-      // a flat line. A uniformly LOW-amplitude signal (0.12) has small raw min/max,
-      // so without per-view vertical normalization the envelope fills only ~10% of
-      // the band height when zoomed in; with it, it fills the band.
+      // regression (bug 2026-06-25): zooming must not change the vertical scale.
+      // The old per-view normalization made the waveform expand as you zoomed in
+      // until it overflowed the pane and blanked (and, at extreme zoom, collapsed
+      // to a flat line). With a fixed song-wide scale + bucket aggregation the
+      // height is stable. Uniform 0.12 tone → same height at every zoom.
       const sr3 = 8000, secs3 = 8, M = sr3 * secs3;
       const quiet = new Float32Array(M);
       for (let i = 0; i < M; i++) quiet[i] = Math.sin(i / sr3 * 900) * 0.12;
       tl.duration = secs3; tl.time = 4; tl.laneKey = null;
-      tl.pxPerSec = w / (tl.dpr * 1.0); // ~1s visible window (deep zoom)
-      tl.viewStart = 3;
       tl.setWaveform(new WaveformPeaks([quiet], sr3));
-      tl.ctx.clearRect(0, 0, w, h);
-      tl._drawWave(w, h, tl.dpr);
-      const full = tl.ctx.getImageData(0, 0, w, h).data;
-      let yMin = h, yMax = 0;
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x += 11) {
-          const i = (y * w + x) * 4;
-          if (full[i] > 30 || full[i + 1] > 30 || full[i + 2] > 40) { if (y < yMin) yMin = y; if (y > yMax) yMax = y; break; }
-        }
-      }
-      const extent = yMax - yMin, bandH = h - 26 * tl.dpr;
-      step('waveform: stays legible (fills band) when zoomed in', extent > bandH * 0.45,
-        `extent=${extent} band=${bandH.toFixed(0)}`);
-
-      // regression (bug 2026-06-25b): a quiet body with sparse LOUD transients
-      // (kicks) must not crush the body to a flat line. Normalizing to the visible
-      // peak is dominated by the transients (the disappear-during-playback bug);
-      // percentile normalization keeps the body filling most of the band. Measured
-      // by counting columns whose envelope reaches a row 50% up from the midline —
-      // only the tall transients reach it under peak-normalization.
-      const sr4 = 8000, secs4 = 8, K = sr4 * secs4;
-      const kicky = new Float32Array(K);
-      for (let i = 0; i < K; i++) {
-        const t = i / sr4, ph = (t * 2) % 1;
-        kicky[i] = Math.sin(t * 700) * 0.1 + Math.exp(-ph * 40) * Math.sin(t * 120) * 1.0;
-      }
-      tl.duration = secs4; tl.time = 4; tl.laneKey = null;
-      tl.pxPerSec = w / (tl.dpr * 1.5); // ~1.5s window (body + several kicks)
-      tl.viewStart = 2;
-      tl.setWaveform(new WaveformPeaks([kicky], sr4));
-      tl.ctx.clearRect(0, 0, w, h);
-      tl._drawWave(w, h, tl.dpr);
-      const top4 = 26 * tl.dpr, rowY = Math.floor(top4 + (h - top4) * 0.25);
-      const rowData = tl.ctx.getImageData(0, rowY, w, 1).data;
-      let bodyCols = 0;
-      for (let x = 0; x < w; x++) { const i = x * 4; if (rowData[i] > 30 || rowData[i + 1] > 30 || rowData[i + 2] > 40) bodyCols++; }
-      step('waveform: quiet body stays legible under loud transients', bodyCols > w * 0.5,
-        `bodyCols=${bodyCols}/${w}`);
+      const bandH = h - 26 * tl.dpr;
+      const waveExtent = () => {
+        tl.ctx.clearRect(0, 0, w, h);
+        tl._drawWave(w, h, tl.dpr);
+        const d = tl.ctx.getImageData(0, 0, w, h).data;
+        let yMin = h, yMax = 0;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x += 11) { const i = (y * w + x) * 4; if (d[i] > 30 || d[i + 1] > 30 || d[i + 2] > 40) { if (y < yMin) yMin = y; if (y > yMax) yMax = y; break; } }
+        return yMax - yMin;
+      };
+      tl.viewStart = 3.4; tl.pxPerSec = w / (tl.dpr * 0.2); // ~0.2s window (extreme zoom)
+      const eDeep = waveExtent();
+      step('waveform: stays legible at deep zoom (no collapse, no blank)',
+        eDeep > bandH * 0.4 && eDeep <= bandH + 2, `extent=${eDeep} band=${bandH.toFixed(0)}`);
+      tl.viewStart = 1; tl.pxPerSec = w / (tl.dpr * 4); // ~4s window
+      const eWide = waveExtent();
+      step('waveform: vertical scale is stable across zoom (does not expand)',
+        Math.abs(eDeep - eWide) <= bandH * 0.3, `deep=${eDeep} wide=${eWide} band=${bandH.toFixed(0)}`);
 
       tl.setWaveform(null); // restore clean state for later tests
     }
