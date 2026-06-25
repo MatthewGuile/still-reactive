@@ -226,6 +226,32 @@ async function main() {
       let painted = 0;
       for (let i = 3; i < band.length; i += 4) if (band[i] > 0) painted++;
       step('waveform: style B paints the wave band', painted > 50, `painted=${painted}`);
+
+      // regression (bug 2026-06-25): zooming in must not collapse the waveform to
+      // a flat line. A uniformly LOW-amplitude signal (0.12) has small raw min/max,
+      // so without per-view vertical normalization the envelope fills only ~10% of
+      // the band height when zoomed in; with it, it fills the band.
+      const sr3 = 8000, secs3 = 8, M = sr3 * secs3;
+      const quiet = new Float32Array(M);
+      for (let i = 0; i < M; i++) quiet[i] = Math.sin(i / sr3 * 900) * 0.12;
+      tl.duration = secs3; tl.time = 4; tl.laneKey = null;
+      tl.pxPerSec = w / (tl.dpr * 1.0); // ~1s visible window (deep zoom)
+      tl.viewStart = 3;
+      tl.setWaveform(new WaveformPeaks([quiet], sr3));
+      tl.ctx.clearRect(0, 0, w, h);
+      tl._drawWave(w, h, tl.dpr);
+      const full = tl.ctx.getImageData(0, 0, w, h).data;
+      let yMin = h, yMax = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x += 11) {
+          const i = (y * w + x) * 4;
+          if (full[i] > 30 || full[i + 1] > 30 || full[i + 2] > 40) { if (y < yMin) yMin = y; if (y > yMax) yMax = y; break; }
+        }
+      }
+      const extent = yMax - yMin, bandH = h - 26 * tl.dpr;
+      step('waveform: stays legible (fills band) when zoomed in', extent > bandH * 0.45,
+        `extent=${extent} band=${bandH.toFixed(0)}`);
+
       tl.setWaveform(null); // restore clean state for later tests
     }
   }

@@ -800,8 +800,18 @@ export class Timeline {
     if (!wave) return; // no decoded audio yet → grid/playhead still draw
     const top = RULER_H * dpr;
     const mid = top + (h - top) * 0.5;
-    const amp = (h - top) * 0.46;
     const cols = wave.columns(this.viewStart, this.viewStart + this._viewSeconds(), w);
+    // Per-view vertical normalization: scale the visible window's peak to fill the
+    // band so the waveform stays legible at any zoom. Raw min/max shrinks as fewer
+    // samples land in each column when zoomed in — without this the envelope
+    // collapses to a flat line ("disappears"). The 0.04 floor (~-28 dB) avoids
+    // over-amplifying a near-silent view into noise.
+    let vmax = 0;
+    for (let x = 0; x < w; x++) {
+      const a = Math.max(Math.abs(cols.max[x]), Math.abs(cols.min[x]));
+      if (a > vmax) vmax = a;
+    }
+    const amp = (h - top) * 0.46 * (0.94 / Math.max(vmax, 0.04));
     const playedX = this.xOf(this.time);
     const alpha = this.laneKey ? 0.3 : 1;
 
