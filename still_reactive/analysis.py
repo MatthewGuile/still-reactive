@@ -85,6 +85,17 @@ def _pick_peaks(env: np.ndarray, min_gap_frames: int, floor: float) -> list[int]
     return chosen
 
 
+def _candidates(flux_env: np.ndarray) -> list[list[float]]:
+    """Generous onset candidates [[t_seconds, strength_0_1], ...] from a flux
+    envelope. The threshold is deliberately low — the frontend selectivity
+    slider filters these further, so analysis never has to be re-run to change
+    how many triggers a set keeps."""
+    env = _norm01(_smooth(flux_env, 3))
+    local = _smooth(env, int(2 * FRAME_RATE))
+    peaks = _pick_peaks(env, int(0.06 * FRAME_RATE), np.maximum(local * 0.5, 0.08))
+    return [[round(p / FRAME_RATE, 3), round(float(env[p]), 3)] for p in peaks]
+
+
 def _detect_audio_bounds(y: np.ndarray) -> tuple[float, float]:
     """First/last time (s) where a 50 ms window exceeds -45 dBFS.
 
@@ -242,6 +253,8 @@ def analyze_audio(path: str | Path) -> dict:
     loudness = np.zeros(n, dtype=np.float64)
     flux = np.zeros(n, dtype=np.float64)
     bass_flux = np.zeros(n, dtype=np.float64)  # low-band-only onset flux
+    mid_flux = np.zeros(n, dtype=np.float64)
+    high_flux = np.zeros(n, dtype=np.float64)
     prev_log = None
 
     chunk = 2048
@@ -263,6 +276,8 @@ def analyze_audio(path: str | Path) -> dict:
         diff = np.maximum(log_mag - ref, 0.0)
         flux[start : start + len(f)] = diff.sum(axis=1)
         bass_flux[start : start + len(f)] = diff[:, band_masks["low"]].sum(axis=1)
+        mid_flux[start : start + len(f)] = diff[:, band_masks["mid"]].sum(axis=1)
+        high_flux[start : start + len(f)] = diff[:, band_masks["high"]].sum(axis=1)
         prev_log = log_mag[-1:]
 
     bands_n = {name: _norm01(np.log1p(e)) for name, e in band_energy.items()}
@@ -292,6 +307,13 @@ def analyze_audio(path: str | Path) -> dict:
         [round(p / FRAME_RATE, 3) for p in bass_peaks] if has_bass else onsets
     )
 
+    triggers = {
+        "overall": _candidates(flux),
+        "low": _candidates(bass_flux),
+        "mid": _candidates(mid_flux),
+        "high": _candidates(high_flux),
+    }
+
     tempo, beat_offset = _estimate_tempo(onset_env, anchor_env)
     beat_offset = _anchor_downbeat(
         anchor_env, anchor_onsets, tempo, beat_offset, audio_start
@@ -300,20 +322,11 @@ def analyze_audio(path: str | Path) -> dict:
         np.stack([bands_n["low"], bands_n["mid"], bands_n["high"], loud_n]), n
     )
 
-    n_bins = 1200
-    trim = (len(y) // n_bins) * n_bins
-    wave_peaks = (
-        np.abs(y[:trim]).reshape(n_bins, -1).max(axis=1) if trim > 0 else np.zeros(1)
-    )
-    peak = wave_peaks.max()
-    if peak > 0:
-        wave_peaks = wave_peaks / peak
-
     def arr(x: np.ndarray) -> list:
         return np.round(x, 3).tolist()
 
     return {
-        "version": 3,
+        "version": 4,
         "frameRate": FRAME_RATE,
         "frames": n,
         "duration": round(duration, 3),
@@ -328,8 +341,8 @@ def analyze_audio(path: str | Path) -> dict:
         "high": arr(bands_n["high"]),
         "onsetEnv": arr(onset_env),
         "onsets": onsets,
+        "triggers": triggers,
         "sections": sections,
-        "wavePeaks": arr(wave_peaks),
         # multiband set for user-defined low/mid/high crossovers (per-band
         # percentile-normalized; the frontend averages member bands and
         # re-normalizes)
@@ -371,7 +384,7 @@ def ensure_analysis(project_dir: str | Path) -> dict:
         # Recompute caches written by older analysis versions.
         try:
             cached = json.loads(analysis_path.read_text(encoding="utf-8"))
-            if cached.get("version", 1) < 3:
+            if cached.get("version", 1) < 4:
                 analysis_path.unlink()
         except (ValueError, OSError):
             analysis_path.unlink(missing_ok=True)

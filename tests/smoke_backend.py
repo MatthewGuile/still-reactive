@@ -90,17 +90,25 @@ def main() -> None:
     import json
 
     a = json.loads((store.project_dir(meta["id"]) / "analysis.json").read_text())
+    trg = a["triggers"]
     print(f"project id      : {meta['id']}")
     print(f"duration        : {a['duration']} s ({a['frames']} analysis frames)")
     print(f"tempo           : {a['tempo']} BPM (expect ~120), offset {a['beatOffset']} s")
     print(f"onsets          : {len(a['onsets'])} (kicks+hats ~ 36 raw events)")
+    print(f"triggers        : overall={len(trg['overall'])} low={len(trg['low'])} "
+          f"mid={len(trg['mid'])} high={len(trg['high'])}")
     print(f"sections        : {a['sections']}")
     print(f"env ranges      : low [{min(a['low'])},{max(a['low'])}] high [{min(a['high'])},{max(a['high'])}]")
     print(f"depth.png       : {(store.project_dir(meta['id']) / 'depth.png').exists()}")
     assert 100 < a["tempo"] < 140, "tempo estimate out of range"
     assert len(a["onsets"]) >= 20, "too few onsets detected"
-    assert len(a["wavePeaks"]) == 1200
-    assert a["version"] == 3, "analysis version not bumped"
+    assert "wavePeaks" not in a, "wavePeaks should be dropped in v4"
+    assert a["version"] == 4, "analysis version not bumped to 4"
+    assert set(trg) == {"overall", "low", "mid", "high"}, f"trigger bands: {set(trg)}"
+    assert all(len(c) == 2 and 0.0 <= c[1] <= 1.0 for band in trg.values() for c in band), \
+        "each trigger candidate is [t_seconds, strength_0_1]"
+    assert len(trg["low"]) >= 15, f"too few low (kick) candidates: {len(trg['low'])}"
+    assert len(trg["overall"]) >= 15, f"too few overall candidates: {len(trg['overall'])}"
     assert a["audioStart"] < 0.2, f"audioStart {a['audioStart']} on a no-silence file"
     assert len(a["bands"]) == 16, "multiband set missing"
     assert all(len(b) == a["frames"] for b in a["bands"]), "band length mismatch"
