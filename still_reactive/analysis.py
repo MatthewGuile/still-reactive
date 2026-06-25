@@ -157,6 +157,42 @@ def _anchor_downbeat(
     return round(best, 3)
 
 
+def _phase_lock_R(onset_times: list[float], bpm: float, offset: float) -> float:
+    """Resultant-vector length of onset phases at a tempo+offset (Mardia R).
+
+    1.0 = every onset sits on the grid; ~0 = uniform/drifting. This is the
+    diagnostic the grid is judged by, so the refit optimizes it directly.
+    """
+    if not onset_times or bpm <= 0:
+        return 0.0
+    beat = 60.0 / bpm
+    ph = 2 * np.pi * (((np.asarray(onset_times) - offset) / beat) % 1.0)
+    return float(np.abs(np.mean(np.exp(1j * ph))))
+
+
+def _refine_tempo(
+    bpm_seed: float, offset_seed: float, onset_times: list[float]
+) -> tuple[float, float]:
+    """Refine the autocorrelation seed by maximizing phase-lock R over a fine
+    BPM sweep on the actual onset times (the autocorrelation's 50 fps frame-lag
+    is ~1% coarse near 145 BPM). The best BPM's circular-mean angle gives the
+    within-beat phase offset.
+    """
+    if bpm_seed <= 0 or len(onset_times) < 8:
+        return float(bpm_seed), float(offset_seed)
+    times = np.asarray(onset_times)
+    best_bpm, best_r, best_off = float(bpm_seed), -1.0, float(offset_seed)
+    for bpm in np.arange(bpm_seed * 0.96, bpm_seed * 1.04, 0.05):
+        beat = 60.0 / bpm
+        z = np.mean(np.exp(1j * 2 * np.pi * ((times / beat) % 1.0)))
+        r = abs(z)
+        if r > best_r:
+            best_r = r
+            best_bpm = float(bpm)
+            best_off = float((np.angle(z) / (2 * np.pi)) % 1.0) * beat
+    return best_bpm, round(best_off, 3)
+
+
 def _estimate_tempo(
     onset_env: np.ndarray, phase_env: np.ndarray | None = None
 ) -> tuple[float, float]:
@@ -315,6 +351,10 @@ def analyze_audio(path: str | Path) -> dict:
     }
 
     tempo, beat_offset = _estimate_tempo(onset_env, anchor_env)
+    # RC1: refine the autocorrelation seed by phase-locking to the kick (low)
+    # trigger times — falls back to overall when there is little bass.
+    refit_times = [t for t, s in (triggers["low"] or triggers["overall"])]
+    tempo, beat_offset = _refine_tempo(tempo, beat_offset, refit_times)
     beat_offset = _anchor_downbeat(
         anchor_env, anchor_onsets, tempo, beat_offset, audio_start
     )

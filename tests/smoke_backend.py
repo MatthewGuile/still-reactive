@@ -136,6 +136,21 @@ def main() -> None:
     assert a2["beatOffset"] >= lead - 0.25, "bar 1 still inside the leading silence"
     assert phase < 0.045, "bar 1 not aligned to the kick grid"
 
+    # RC1 — phase-lock tempo refit (pure). Perfect clicks at 146 BPM with a
+    # ~1% off seed: the autocorrelation-grade seed drifts (low R) over many
+    # beats; the refit must recover the true BPM and lock (high R).
+    true_bpm = 146.0
+    beat = 60.0 / true_bpm
+    clicks = [round(k * beat, 3) for k in range(80)]
+    seed = 144.74
+    r_seed = analysis._phase_lock_R(clicks, seed, 0.0)
+    bpm_ref, off_ref = analysis._refine_tempo(seed, 0.0, clicks)
+    r_ref = analysis._phase_lock_R(clicks, bpm_ref, off_ref)
+    print(f"tempo refit     : seed {seed} R={r_seed:.2f} -> {bpm_ref:.2f} R={r_ref:.2f}")
+    assert abs(bpm_ref - true_bpm) < 0.2, f"refit bpm {bpm_ref} (want ~146)"
+    assert r_ref > 0.9, f"refit did not lock (R={r_ref:.2f})"
+    assert r_ref > r_seed + 0.3, f"R did not improve ({r_seed:.2f} -> {r_ref:.2f})"
+
     # Replace-audio comparison helper (pure): duration/tempo/downbeat tolerances.
     base = {"duration": 180.0, "tempo": 120.0, "beatOffset": 0.20}
     assert analysis.compare_audio(base, dict(base))["warnings"] == [], "identical -> no warnings"
