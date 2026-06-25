@@ -49,6 +49,7 @@ export class Timeline {
     this.duration = 0;
     this.viewStart = 0;      // seconds at the left edge
     this.wave = null;        // WaveformPeaks (set by main when audio decodes)
+    this.triggerSets = [];   // Slice 1b: [{color, triggers:[{t,s}]}] shown overlays
     this.pxPerSec = 0;       // css px per second; 0 = fit whole song
     this.drag = null;
 
@@ -181,6 +182,11 @@ export class Timeline {
 
   setWaveform(wave) {
     this.wave = wave;
+    this.draw();
+  }
+
+  setTriggerSets(sets) {
+    this.triggerSets = Array.isArray(sets) ? sets : [];
     this.draw();
   }
 
@@ -939,6 +945,18 @@ export class Timeline {
       if (x < 0 || x > w) continue;
       ctx.fillRect(x, top, 2 * dpr, h - top);
     }
+    // Slice 1b: user trigger sets — color-coded ticks, height grows with strength.
+    const tA = this.laneKey ? 0.45 : 0.8;
+    ctx.globalAlpha = tA;
+    for (const set of this.triggerSets) {
+      ctx.fillStyle = set.color;
+      for (const trg of set.triggers) {
+        const x = this.xOf(trg.t);
+        if (x < 0 || x > w) continue;
+        ctx.fillRect(x, top, Math.max(dpr, 1), (h - top) * (0.12 + 0.28 * trg.s));
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   // R9-7: what marker is under the cursor (for the hover tooltip). Returns a

@@ -1,7 +1,7 @@
 // Still Reactive — app state and wiring.
 
 import { Renderer } from './renderer.js';
-import { FeatureBank, modValues, applyModulation } from './features.js';
+import { FeatureBank, modValues, applyModulation, detectTriggers } from './features.js';
 import { Transport } from './audio.js';
 import { Timeline } from './timeline.js';
 import { WaveformPeaks } from './waveform.js';
@@ -51,6 +51,8 @@ const state = {
   pendingImage: null,
   pendingAudio: null,
   clipboard: null,        // R14-P3: copied automation clip (range or whole lane)
+  triggerSets: [],        // Slice 1b: detection recipes {id,name,band,selectivity,color,show}
+  triggerOverlays: true,  // Slice 1b: show trigger ticks on the timeline (UI pref)
 };
 
 const params = () => state.params;
@@ -326,13 +328,14 @@ function buildSessionPayload() {
     reframe: state.reframe,
     followStructure: state.followStructure,
     followLocked: state.followLocked,
+    triggerSets: state.triggerSets,
   };
 }
 
 // ----------------------------------------------- local UI preferences (item 3)
 // App-global, NOT per-project, NOT in renders. Key is distinct from the
 // per-project `sr:${projectId}` autosave key.
-const UI_PREFS_DEFAULTS = { focus: true };
+const UI_PREFS_DEFAULTS = { focus: true, triggerOverlays: true };
 function loadUiPrefs() {
   try {
     const raw = localStorage.getItem('sr:ui-prefs');
@@ -416,6 +419,7 @@ function applySessionData(saved) {
     if (STYLE_PACKS.some((p) => p.id === saved.packId)) state.packId = saved.packId;
     state.followStructure = !!saved.followStructure;
     state.followLocked = !!saved.followLocked;
+    state.triggerSets = Array.isArray(saved.triggerSets) ? saved.triggerSets : [];
     if (saved.reframe) {
       for (const k of Object.keys(state.reframe)) {
         const r = saved.reframe[k];
@@ -716,6 +720,7 @@ const panel = new ParamPanel(document.getElementById('paramPanels'), {
   isMapped: (key) => isMappedKey(key),
 });
 state.focus = loadUiPrefs().focus;   // app-global UI pref, not project state
+state.triggerOverlays = loadUiPrefs().triggerOverlays;  // Slice 1b: overlay default
 panel.focusMode = state.focus;
 
 window.onerror = (msg, src, line) => {
@@ -1602,15 +1607,21 @@ function closeSettings() {
 }
 function openSettings() {
   closeSettings();
+  const saveBoth = () => saveUiPrefs({ focus: state.focus, triggerOverlays: state.triggerOverlays });
   const focusCb = el('input', {
     type: 'checkbox',
     onchange: (e) => {
       state.focus = e.target.checked;
       panel.setFocusMode(state.focus);
-      saveUiPrefs({ focus: state.focus });
+      saveBoth();
     },
   });
   focusCb.checked = state.focus; // property, not attribute (el routes unknowns to setAttribute)
+  const ovCb = el('input', {
+    type: 'checkbox',
+    onchange: (e) => { state.triggerOverlays = e.target.checked; saveBoth(); pushTriggerOverlays(); },
+  });
+  ovCb.checked = state.triggerOverlays !== false;
   settingsPop = el('div',
     { class: 'settings-pop', role: 'dialog', 'aria-label': 'UI settings' },
     el('h4', { text: 'UI settings' }),
@@ -1618,7 +1629,12 @@ function openSettings() {
       focusCb,
       el('span', { class: 'settings-text' },
         el('strong', { text: 'Focus mode' }),
-        el('span', { class: 'hint', text: 'work on one device at a time' }))));
+        el('span', { class: 'hint', text: 'work on one device at a time' }))),
+    el('label', { class: 'settings-row' },
+      ovCb,
+      el('span', { class: 'settings-text' },
+        el('strong', { text: 'Show trigger overlays' }),
+        el('span', { class: 'hint', text: 'colored trigger ticks on the timeline' }))));
   document.body.append(settingsPop);
   const b = settingsBtn.getBoundingClientRect();
   const r = settingsPop.getBoundingClientRect();
@@ -2544,6 +2560,7 @@ async function loadProject(meta) {
 
   timeline.setBank(state.bank);
   setTimelineWaveform();
+  pushTriggerOverlays();
   document.getElementById('dropHint').style.display = 'none';
   inputStatus.textContent = '';
   updateMediaCard(meta);
@@ -2927,6 +2944,89 @@ function buildSignalPanel() {
     ctlBox.append(el('label', { class: 'sig-ctl-row', title: fl.hint || 'Flash limiter' },
       el('span', { class: 'sig-ctl-lbl', text: 'Flash limiter' }), cb));
   }
+  buildTriggersSection();
+}
+
+// Slice 1b: trigger sets are detection "recipes" — band + selectivity — whose
+// triggers are derived live from the cached per-band candidates. (Editing +
+// modulation are later slices.)
+const TRIGGER_BANDS = [
+  { band: 'overall', label: 'Overall' }, { band: 'low', label: 'Low (kick)' },
+  { band: 'mid', label: 'Mid (snare)' }, { band: 'high', label: 'High (hats)' },
+];
+const TRIGGER_COLORS = ['#7fd6e6', '#ffb45a', '#9b8cff', '#6ce6a0'];
+
+function deriveTriggerSet(set, bank) {
+  if (!set || !bank) return [];
+  return detectTriggers((bank.triggerCandidates || {})[set.band] || [], set.selectivity);
+}
+
+function buildTriggersSection() {
+  const box = document.getElementById('signalTriggers');
+  if (!box) return;
+  box.textContent = '';
+  let pendBand = 'low', pendSel = 0.5;
+  const bandSeg = el('div', { class: 'seg trg-bands' });
+  for (const { band, label } of TRIGGER_BANDS) {
+    const b = el('button', {
+      type: 'button', text: label,
+      onclick: () => { pendBand = band; for (const c of bandSeg.children) c.classList.toggle('active', c === b); },
+    });
+    if (band === pendBand) b.classList.add('active');
+    bandSeg.append(b);
+  }
+  const sel = el('input', {
+    type: 'range', min: 0, max: 1, step: 0.05, value: pendSel,
+    oninput: (e) => { pendSel = parseFloat(e.target.value); },
+  });
+  box.append(el('div', { class: 'trg-detect' },
+    el('span', { class: 'sig-ctl-lbl', text: 'Detect' }), bandSeg,
+    el('span', { class: 'sig-ctl-lbl', text: 'Selectivity' }), sel,
+    el('button', {
+      class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create a trigger set from this band',
+      onclick: () => {
+        const n = state.triggerSets.length;
+        state.triggerSets.push({
+          id: `trg${Date.now().toString(36)}`,
+          name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
+          band: pendBand, selectivity: pendSel,
+          color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], show: true,
+        });
+        autosaveAutomation(); refreshTriggers();
+      },
+    })));
+  const list = el('div', { class: 'trg-list' });
+  for (const set of state.triggerSets) {
+    const count = state.bank ? deriveTriggerSet(set, state.bank).length : 0;
+    list.append(el('div', { class: 'trg-row' },
+      el('span', { class: 'trg-swatch', style: `background:${set.color}` }),
+      el('span', { class: 'trg-name', text: `${set.name} · ${count}` }),
+      el('button', {
+        class: 'ctl-btn ctl-mini', text: set.show ? 'Shown' : 'Hidden', title: 'show on the timeline',
+        onclick: () => { set.show = !set.show; autosaveAutomation(); refreshTriggers(); },
+      }),
+      el('button', {
+        class: 'ctl-btn ctl-mini', text: '×', title: 'delete set',
+        onclick: () => { state.triggerSets = state.triggerSets.filter((s) => s !== set); autosaveAutomation(); refreshTriggers(); },
+      })));
+  }
+  box.append(list);
+}
+
+function refreshTriggers() {
+  buildTriggersSection();
+  pushTriggerOverlays();
+}
+
+// Slice 1b: push shown trigger sets (derived ticks) to the timeline overlay.
+// (Replaced with band-aware logic when the overlay lands; stub keeps refreshes safe.)
+function pushTriggerOverlays() {
+  const on = state.triggerOverlays !== false;
+  const sets = (on && state.bank)
+    ? state.triggerSets.filter((s) => s.show)
+        .map((s) => ({ color: s.color, triggers: deriveTriggerSet(s, state.bank) }))
+    : [];
+  if (timeline.setTriggerSets) timeline.setTriggerSets(sets);
 }
 
 function formatNum(v, s) {
@@ -3611,6 +3711,7 @@ window.__rebuild = {
 
 // Timeline waveform test hook (Spec 1).
 window.__timeline = timeline;
+window.__triggers = { state, deriveTriggerSet }; // Slice 1b test hook
 
 // Task 3.1 test hook: rack CRUD. Later tasks Object.assign() their own fns.
 // ADDITIVE ONLY — do not reference functions that don't exist yet (Tasks 3.2+).

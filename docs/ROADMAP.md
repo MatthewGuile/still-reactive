@@ -161,8 +161,11 @@ round numbers below are historical labels, not priority.
    **Slice 1a SHIPPED 2026-06-25** (branch `feat/trigger-detection-foundation`):
    phase-lock tempo refit (RC1) + multiband trigger candidates in `analysis.json`
    (v4, `wavePeaks` dropped) + the frontend `detectTriggers` selectivity filter.
-   Next: **Slice 1b** (Triggers section in the Signal panel + timeline viewing),
-   then **Slice 2** (triggers as modulation sources), **Slice 3** (editing).
+   **Slice 1b SHIPPED 2026-06-25** (branch `feat/triggers-signal-viewing`): a
+   **Triggers** section in the Signal panel — detect per-band recipe sets
+   (band + selectivity) — shown as color-coded ticks on the timeline, with a
+   per-set show toggle and a Settings "Show trigger overlays" default. Next:
+   **Slice 2** (triggers as modulation sources), then **Slice 3** (editing).
    Restores trust in the timeline/audio analysis and is the foundation for the
    trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,

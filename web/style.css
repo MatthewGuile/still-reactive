@@ -1219,6 +1219,14 @@ details.group.master {
 .sig-ctl-lbl { flex: 0 0 96px; }
 .sig-ctl-row input[type=range] { flex: 1; }
 .sig-ctl-val { flex: 0 0 32px; text-align: right; color: var(--text-dim); }
+/* Slice 1b: Triggers section */
+.trg-detect { align-items: center; display: flex; flex-wrap: wrap; font-size: 11px; gap: 6px; margin: 2px 0 6px; }
+.trg-detect input[type=range] { flex: 1; min-width: 80px; }
+.trg-bands button { font-size: 10px; padding: 2px 5px; }
+.trg-list { display: flex; flex-direction: column; gap: 3px; }
+.trg-row { align-items: center; display: flex; font-size: 11px; gap: 6px; }
+.trg-swatch { border-radius: 2px; flex: 0 0 10px; height: 10px; }
+.trg-name { flex: 1; color: var(--text); }
 .sig-map-row { display: flex; font-size: 11px; gap: 6px; margin: 2px 0; }
 .sig-map-src { color: var(--accent); flex: 0 0 64px; }
 .sig-map-tgt { color: var(--text-dim); }

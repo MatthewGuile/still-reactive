@@ -214,6 +214,24 @@ async function main() {
       detectTriggers([], 0.5).length === 0 && detectTriggers(undefined, 0.5).length === 0);
   }
 
+  // Slice 1b — trigger-set recipe + Signal Triggers section
+  {
+    const W = idoc.defaultView;
+    step('triggers1b: __triggers hook + Triggers section present',
+      !!W.__triggers && !!idoc.getElementById('signalTriggers'));
+    if (W.__triggers) {
+      const bank = { triggerCandidates: { low: [[0.0, 1.0], [0.5, 0.3], [1.0, 0.9]] } };
+      const set = { id: 't1', name: 'Low', band: 'low', selectivity: 0.0, color: '#6cf', show: true };
+      const derived = W.__triggers.deriveTriggerSet(set, bank);
+      step('triggers1b: deriveTriggerSet derives [{t,s}] from candidates+selectivity',
+        derived.length === 3 && derived[0].t === 0.0 && typeof derived[0].s === 'number',
+        `n=${derived.length}`);
+      const tight = W.__triggers.deriveTriggerSet({ ...set, selectivity: 1.0 }, bank);
+      step('triggers1b: higher selectivity derives fewer', tight.length < derived.length,
+        `loose=${derived.length} tight=${tight.length}`);
+    }
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;
@@ -277,6 +295,17 @@ async function main() {
         Math.abs(eDeep - eWide) <= bandH * 0.3, `deep=${eDeep} wide=${eWide} band=${bandH.toFixed(0)}`);
 
       tl.setWaveform(null); // restore clean state for later tests
+
+      // Slice 1b — trigger overlay paints colored ticks
+      tl.duration = 4; tl.pxPerSec = 0; tl.viewStart = 0; tl.wave = null;
+      tl.setBank({ duration: 4, onsets: [], sections: [0] });
+      tl.setTriggerSets([{ color: '#ff5050', triggers: [{ t: 1, s: 1 }, { t: 2, s: 1 }, { t: 3, s: 1 }] }]);
+      tl.draw();
+      const trd = tl.ctx.getImageData(0, 0, tl.canvas.width, tl.canvas.height).data;
+      let red = 0;
+      for (let i = 0; i < trd.length; i += 4) if (trd[i] > 150 && trd[i + 1] < 110 && trd[i + 2] < 110) red++;
+      step('triggers1b: timeline overlay paints colored ticks', red > 5, `red=${red}`);
+      tl.setTriggerSets([]); tl.draw();
     }
   }
 
@@ -314,6 +343,16 @@ async function main() {
   step('item3: settings popover opens with a Focus checkbox', popOpened && hasFocusCb);
   step('item3: toggling Focus persists to sr:ui-prefs + state', persisted);
   step('item3: re-clicking the gear closes the popover', popClosed);
+
+  // Slice 1b — Settings popover gains a "Show trigger overlays" toggle
+  step('triggers1b: Settings has a Show-trigger-overlays toggle', (() => {
+    const sb = idoc.getElementById('settingsBtn');
+    sb.click();
+    const pop = idoc.querySelector('.settings-pop');
+    const has = pop && /trigger overlays/i.test(pop.textContent);
+    sb.click();
+    return !!has;
+  })());
 
   // 2 — render frames through the real pipeline
   const { Renderer } = await import('./js/renderer.js');
