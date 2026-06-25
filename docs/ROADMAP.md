@@ -168,8 +168,17 @@ round numbers below are historical labels, not priority.
    **Slice 2 SHIPPED 2026-06-25** (branch `feat/trigger-modulation`): trigger
    sets are now **deterministic modulation sources** — each fires a decaying
    pulse (`triggerEnvelope`, pure in t) routed via the mod matrix (`trg:<id>`
-   sources in every param's mod menu), with a per-set decay control. Next:
-   **Slice 3** (editing — drag/add/delete individual triggers + named custom sets).
+   sources in every param's mod menu), with a per-set decay control.
+   **⚠ NEEDS REFINEMENT (user, 2026-06-25):** Slices 1a–2 are *functionally*
+   complete but rough — treat the current trigger system as a working prototype,
+   not finished. A dedicated refinement pass is needed across: **detection
+   quality** (per-band selectivity/thresholds, what counts as a trigger, octave/
+   tempo-refit robustness on real tracks), the **Triggers UI/UX** (the Signal
+   section + detect flow are minimal; set management, naming, live selectivity
+   preview), **overlay legibility** on the timeline, and the **modulation feel**
+   (decay/attack shaping, per-trigger strength response). Gather specifics from
+   real use before the polish pass. Next: **Slice 3** (editing — drag/add/delete
+   individual triggers + named custom sets), then the refinement pass.
    Restores trust in the timeline/audio analysis and is the foundation for the
    trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
