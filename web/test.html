@@ -193,6 +193,27 @@ async function main() {
       ce.max.length === 5 && ce.max.every((v) => v === 0));
   }
 
+  // Trigger detection foundation (Slice 1a) — pure selectivity filter
+  {
+    const { detectTriggers } = await import('./js/features.js');
+    // strengths 0.2..1.0; selectivity 0 keeps most, 1 keeps only the strongest
+    const cands = [[0.0, 1.0], [0.5, 0.3], [1.0, 0.9], [1.5, 0.2], [2.0, 0.6]];
+    const loose = detectTriggers(cands, 0.0);
+    const tight = detectTriggers(cands, 1.0);
+    step('triggers: detectTriggers returns {t,s} objects',
+      loose.length > 0 && typeof loose[0].t === 'number' && typeof loose[0].s === 'number');
+    step('triggers: higher selectivity keeps fewer (only the strongest)',
+      tight.length < loose.length && tight.every((x) => x.s >= 0.85),
+      `loose=${loose.length} tight=${tight.length}`);
+    // 60 ms min-gap: two near-coincident candidates collapse to the stronger
+    const near = detectTriggers([[1.000, 0.6], [1.030, 0.9]], 0.0);
+    step('triggers: min-gap keeps the stronger of near-coincident pair',
+      near.length === 1 && Math.abs(near[0].s - 0.9) < 1e-6, `n=${near.length}`);
+    // empty / missing band → empty array, no throw
+    step('triggers: empty candidates yield empty array',
+      detectTriggers([], 0.5).length === 0 && detectTriggers(undefined, 0.5).length === 0);
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;
@@ -1163,7 +1184,7 @@ async function main() {
   const synthAnalysis = {
     frameRate: 50, frames, duration: 2, tempo: 120, beatOffset: 0,
     rms: flat, low: flat, mid: flat, high: flat, onsetEnv: flat,
-    onsets: [], sections: [0], wavePeaks: [0],
+    onsets: [], sections: [0], triggers: { overall: [], low: [], mid: [], high: [] },
     bands: bandsArr, bandEdges: edges,
   };
   // band 3 centre ≈ 107 Hz: 'low' with the default 160 Hz crossover…

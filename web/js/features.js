@@ -57,6 +57,28 @@ export function applyModulation(p, feat) {
   return out || p;
 }
 
+// Pure selectivity filter over a band's stored trigger candidates ([[t, s]]).
+// selectivity 0..1 raises the strength threshold (0 keeps most, 1 keeps only the
+// strongest); a 60 ms minimum gap drops near-coincident weaker candidates.
+export function detectTriggers(candidateList, selectivity) {
+  if (!Array.isArray(candidateList) || candidateList.length === 0) return [];
+  const thr = 0.08 + 0.82 * Math.min(Math.max(selectivity, 0), 1);
+  const kept = candidateList
+    .filter((c) => c[1] >= thr)
+    .map((c) => ({ t: c[0], s: c[1] }))
+    .sort((a, b) => a.t - b.t);
+  const out = [];
+  for (const c of kept) {
+    const prev = out[out.length - 1];
+    if (prev && c.t - prev.t < 0.06) {
+      if (c.s > prev.s) out[out.length - 1] = c; // keep the stronger
+    } else {
+      out.push(c);
+    }
+  }
+  return out;
+}
+
 // Percentile normalization matching the backend's _norm01 (5th/97th pct).
 function norm01(arr) {
   const sorted = Float32Array.from(arr).sort();
@@ -89,7 +111,7 @@ export class FeatureBank {
     this.audioStart = analysis.audioStart || 0;  // leading-silence boundary
     this.onsets = analysis.onsets || [];
     this.sections = analysis.sections || [0];
-    this.wavePeaks = analysis.wavePeaks || [];
+    this.triggerCandidates = analysis.triggers || {};
     this.smoothed = {};
     this._b16 = new Float32Array(16); // reused per sample() — Spectrum feed
     this.setResponse({});
