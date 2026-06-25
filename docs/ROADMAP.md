@@ -152,11 +152,19 @@ round numbers below are historical labels, not priority.
    topbar `⚙` gear opens a shortcuts-style Settings popover housing the Focus
    checkbox (the escape hatch). Local UI pref only — render determinism
    unaffected.
-4. **R16-P0 — onset & tempo detection accuracy.** Refine tempo from the onset
-   train, make displayed onsets more selective, and make onset marks legible.
-   This restores trust in the timeline/audio analysis without waiting for the
-   full tempo-map round. This also improves confidence in the Replace audio
-   workflow when the new file is a mastered version of the same song.
+4. **Custom modulation triggers** (was R16-P0 — re-scoped 2026-06-25 into a
+   multi-slice feature; vision spec
+   `docs/superpowers/specs/2026-06-25-custom-modulation-triggers-design.md`).
+   User-editable **"trigger sets"** — points in time detected per band
+   (Overall/Low/Mid/High), user-facing term *Trigger* (internally *onset*) —
+   viewable/editable on the timeline and routable as **modulation sources**.
+   **Slice 1a SHIPPED 2026-06-25** (branch `feat/trigger-detection-foundation`):
+   phase-lock tempo refit (RC1) + multiband trigger candidates in `analysis.json`
+   (v4, `wavePeaks` dropped) + the frontend `detectTriggers` selectivity filter.
+   Next: **Slice 1b** (Triggers section in the Signal panel + timeline viewing),
+   then **Slice 2** (triggers as modulation sources), **Slice 3** (editing).
+   Restores trust in the timeline/audio analysis and is the foundation for the
+   trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
    render-pipeline, or image-layer work. It is less urgent than the two known
    user-facing issues above, but it should gate the architectural rounds.
