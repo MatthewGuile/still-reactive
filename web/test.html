@@ -252,6 +252,31 @@ async function main() {
       step('waveform: stays legible (fills band) when zoomed in', extent > bandH * 0.45,
         `extent=${extent} band=${bandH.toFixed(0)}`);
 
+      // regression (bug 2026-06-25b): a quiet body with sparse LOUD transients
+      // (kicks) must not crush the body to a flat line. Normalizing to the visible
+      // peak is dominated by the transients (the disappear-during-playback bug);
+      // percentile normalization keeps the body filling most of the band. Measured
+      // by counting columns whose envelope reaches a row 50% up from the midline —
+      // only the tall transients reach it under peak-normalization.
+      const sr4 = 8000, secs4 = 8, K = sr4 * secs4;
+      const kicky = new Float32Array(K);
+      for (let i = 0; i < K; i++) {
+        const t = i / sr4, ph = (t * 2) % 1;
+        kicky[i] = Math.sin(t * 700) * 0.1 + Math.exp(-ph * 40) * Math.sin(t * 120) * 1.0;
+      }
+      tl.duration = secs4; tl.time = 4; tl.laneKey = null;
+      tl.pxPerSec = w / (tl.dpr * 1.5); // ~1.5s window (body + several kicks)
+      tl.viewStart = 2;
+      tl.setWaveform(new WaveformPeaks([kicky], sr4));
+      tl.ctx.clearRect(0, 0, w, h);
+      tl._drawWave(w, h, tl.dpr);
+      const top4 = 26 * tl.dpr, rowY = Math.floor(top4 + (h - top4) * 0.25);
+      const rowData = tl.ctx.getImageData(0, rowY, w, 1).data;
+      let bodyCols = 0;
+      for (let x = 0; x < w; x++) { const i = x * 4; if (rowData[i] > 30 || rowData[i + 1] > 30 || rowData[i + 2] > 40) bodyCols++; }
+      step('waveform: quiet body stays legible under loud transients', bodyCols > w * 0.5,
+        `bodyCols=${bodyCols}/${w}`);
+
       tl.setWaveform(null); // restore clean state for later tests
     }
   }

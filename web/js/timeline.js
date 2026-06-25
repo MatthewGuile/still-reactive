@@ -801,17 +801,18 @@ export class Timeline {
     const top = RULER_H * dpr;
     const mid = top + (h - top) * 0.5;
     const cols = wave.columns(this.viewStart, this.viewStart + this._viewSeconds(), w);
-    // Per-view vertical normalization: scale the visible window's peak to fill the
-    // band so the waveform stays legible at any zoom. Raw min/max shrinks as fewer
-    // samples land in each column when zoomed in — without this the envelope
-    // collapses to a flat line ("disappears"). The 0.04 floor (~-28 dB) avoids
-    // over-amplifying a near-silent view into noise.
-    let vmax = 0;
-    for (let x = 0; x < w; x++) {
-      const a = Math.max(Math.abs(cols.max[x]), Math.abs(cols.min[x]));
-      if (a > vmax) vmax = a;
-    }
-    const amp = (h - top) * 0.46 * (0.94 / Math.max(vmax, 0.04));
+    // Per-view vertical normalization so the waveform fills the band and stays
+    // legible at any zoom (raw min/max shrinks as fewer samples land in each column
+    // when zoomed in, otherwise collapsing to a flat line). Normalize to a high
+    // PERCENTILE of the per-column peak, not the absolute max, so sparse loud
+    // transients (kicks/snares) don't crush the quieter body to a line — the few
+    // louder columns clip at the band edge (the pass clip rects below flat-top
+    // them). The 0.04 floor (~-28 dB) avoids amplifying a near-silent view.
+    const peaks = new Float32Array(w);
+    for (let x = 0; x < w; x++) peaks[x] = Math.max(Math.abs(cols.max[x]), Math.abs(cols.min[x]));
+    peaks.sort();
+    const ref = peaks[Math.round((w - 1) * 0.9)] || 0;
+    const amp = (h - top) * 0.46 * (0.72 / Math.max(ref, 0.04));
     const playedX = this.xOf(this.time);
     const alpha = this.laneKey ? 0.3 : 1;
 
