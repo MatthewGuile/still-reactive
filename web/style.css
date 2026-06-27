@@ -1234,10 +1234,15 @@ details.group.master {
 .trg-name-input { flex: 1; min-width: 40px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 11px; padding: 1px 4px; }
 .trg-name-input:focus { border-color: var(--accent); outline: none; }
 .trg-count { flex: 0 0 auto; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
-.trg-decay { flex: 1 1 44px; min-width: 36px; }
-.trg-dyn { flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 10px; padding: 1px 2px; }
-.trg-decay-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 80px; }
+/* Active-set editor panel (progressive disclosure) */
+.trg-editor { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 6px 16px; padding: 6px 8px; border-left: 2px solid var(--accent); background: rgba(122, 162, 255, 0.06); border-radius: 0 4px 4px 0; }
+.trg-erow { align-items: center; display: flex; gap: 8px; font-size: 11px; }
+.trg-elbl { color: var(--text-dim); flex: 0 0 64px; }
+.trg-editor .trg-sel, .trg-editor .trg-decay { flex: 1 1 auto; min-width: 80px; }
+.trg-val { color: var(--text); flex: 0 0 30px; font-variant-numeric: tabular-nums; text-align: right; }
+.trg-dyn { background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 11px; padding: 2px 4px; }
 .trg-shape { flex: 0 0 30px; opacity: 0.85; }
+.trg-hint { color: var(--text-dim); font-size: 10px; font-style: italic; margin-top: 1px; }
 .sig-map-row { display: flex; font-size: 11px; gap: 6px; margin: 2px 0; }
 .sig-map-src { color: var(--accent); flex: 0 0 64px; }
 .sig-map-tgt { color: var(--text-dim); }

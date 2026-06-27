@@ -3108,56 +3108,21 @@ function buildTriggersSection() {
     normalizeTriggerSet(set);
     const isActive = state.activeTriggerSet === set.id;
     const count = state.bank ? resolveTriggers(set, state.bank).length : (set.pins || []).length;
-    const countEl = el('span', { class: 'trg-count', text: `${count}` });
-    const hasEdits = (set.pins || []).length || (set.suppress || []).length;
-    const dynSel = el('select', {
-      class: 'trg-dyn',
-      title: 'Dynamics — Detected: punch from the music · Uniform: every hit equal · Manual: hand-edit strengths',
-      onchange: (e) => { set.dynamics = e.target.value; autosaveAutomation(); commitHistory(); refreshTriggers(); },
-    },
-      el('option', { value: 'detected', text: 'Detected' }),
-      el('option', { value: 'uniform', text: 'Uniform' }),
-      el('option', { value: 'manual', text: 'Manual' }));
-    dynSel.value = set.dynamics || 'detected';
-    const shapeSvg = decayShapeSvg(set);
-    const decayWrap = el('span', { class: 'trg-decay-wrap', title: 'Decay — how long each hit lingers: snappy flick ↔ smooth swell' },
-      el('input', {
-        type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18, class: 'trg-decay',
-        oninput: (e) => {
-          set.decay = parseFloat(e.target.value);
-          shapeSvg._line.setAttribute('points', decayShapePoints(set.decay));
-          refreshTriggerSources();
-        },
-        onchange: () => { autosaveAutomation(); commitHistory(); },
-      }), shapeSvg);
+    const countEl = el('span', { class: 'trg-count', text: `${count}`, title: `${count} markers` });
+
+    // Collapsed row — identity + visibility. Click swatch/name to select (tune/edit).
     list.append(el('div', { class: `trg-row${isActive ? ' active' : ''}` },
       el('span', {
         class: 'trg-swatch', style: `background:${set.color}`,
-        title: 'select to tune / emphasise on the timeline',
+        title: isActive ? 'click to deselect' : 'select to tune & edit',
         onclick: () => setActiveTrigger(set.id),
       }),
       el('input', {
         type: 'text', class: 'trg-name-input', value: set.name, title: 'rename set',
+        onfocus: () => { if (!isActive) setActiveTrigger(set.id); },
         onchange: (e) => { set.name = e.target.value.trim() || set.name; e.target.value = set.name; autosaveAutomation(); refreshTriggerSources(); panel.rebuild(); },
       }),
       countEl,
-      el('input', {
-        type: 'range', min: 0, max: 1, step: 0.05, value: set.selectivity ?? 0.5,
-        class: 'trg-sel', title: 'selectivity — fewer ⇄ more auto markers (live)',
-        oninput: (e) => {
-          const markers = retuneSet(set, state.bank, parseFloat(e.target.value));
-          countEl.textContent = `${markers.length}`;
-          refreshTriggerSources();
-        },
-        onchange: () => { autosaveAutomation(); commitHistory(); },
-      }),
-      dynSel,
-      el('button', {
-        class: 'ctl-btn ctl-mini', text: 'Reset', title: 'clear manual edits (pins + deletions) back to pure auto',
-        disabled: !hasEdits,
-        onclick: () => { resetTriggerEdits(set); autosaveAutomation(); commitHistory(); refreshTriggers(); },
-      }),
-      decayWrap,
       el('button', {
         class: 'ctl-btn ctl-mini', text: set.show ? 'Shown' : 'Hidden', title: 'show on the timeline',
         onclick: () => { set.show = !set.show; autosaveAutomation(); refreshTriggers(); },
@@ -3165,11 +3130,55 @@ function buildTriggersSection() {
       el('button', {
         class: 'ctl-btn ctl-mini', text: '×', title: 'delete set',
         onclick: () => {
-          if (state.editTriggerSet === set) closeTriggerEdit();
+          if (state.activeTriggerSet === set.id) state.activeTriggerSet = null;
           sweepDeletedSource(set.id); state.triggerSets = state.triggerSets.filter((s) => s !== set);
           autosaveAutomation(); refreshTriggers();
         },
       })));
+
+    if (!isActive) continue;
+
+    // Active set — expanded editor panel (roomy, one control per line).
+    const hasEdits = (set.pins || []).length || (set.suppress || []).length;
+    const selVal = el('span', { class: 'trg-val', text: set.selectivity == null ? 'off' : (+set.selectivity).toFixed(2) });
+    const selSlider = el('input', {
+      type: 'range', min: 0, max: 1, step: 0.05, value: set.selectivity ?? 0.5, class: 'trg-sel',
+      title: 'fewer ⇄ more auto-detected markers (live)',
+      oninput: (e) => {
+        const v = parseFloat(e.target.value);
+        const markers = retuneSet(set, state.bank, v);
+        countEl.textContent = `${markers.length}`; selVal.textContent = v.toFixed(2);
+        refreshTriggerSources();
+      },
+      onchange: () => { autosaveAutomation(); commitHistory(); },
+    });
+    const dynSel = el('select', {
+      class: 'trg-dyn',
+      title: 'Detected: punch from the music · Uniform: every hit equal · Manual: hand-edit strengths',
+      onchange: (e) => { set.dynamics = e.target.value; autosaveAutomation(); commitHistory(); refreshTriggers(); },
+    },
+      el('option', { value: 'detected', text: 'Detected' }),
+      el('option', { value: 'uniform', text: 'Uniform' }),
+      el('option', { value: 'manual', text: 'Manual' }));
+    dynSel.value = set.dynamics || 'detected';
+    const shapeSvg = decayShapeSvg(set);
+    const decaySlider = el('input', {
+      type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18, class: 'trg-decay',
+      title: 'how long each hit lingers: snappy flick ↔ smooth swell',
+      oninput: (e) => { set.decay = parseFloat(e.target.value); shapeSvg._line.setAttribute('points', decayShapePoints(set.decay)); refreshTriggerSources(); },
+      onchange: () => { autosaveAutomation(); commitHistory(); },
+    });
+    list.append(el('div', { class: 'trg-editor' },
+      el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Selectivity' }), selSlider, selVal),
+      el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Dynamics' }), dynSel),
+      el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Decay' }), decaySlider, shapeSvg),
+      el('div', { class: 'trg-erow' },
+        el('button', {
+          class: 'ctl-btn ctl-mini', text: 'Reset edits', disabled: !hasEdits,
+          title: 'clear manual edits (pins + deletions) back to pure auto',
+          onclick: () => { resetTriggerEdits(set); autosaveAutomation(); commitHistory(); refreshTriggers(); },
+        })),
+      el('div', { class: 'trg-hint', text: 'Drag on the timeline to add / move markers · right-click to remove' })));
   }
   box.append(list);
 }
@@ -3969,5 +3978,6 @@ window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
 window.__retune = retuneSet;                            // Reactive S1
 window.__normalizeTriggerSet = normalizeTriggerSet;     // Reactive S2
 window.__decayCurve = decayCurve;                       // Reactive S2
+window.__rebuildTriggers = buildTriggersSection;        // Reactive S3
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();

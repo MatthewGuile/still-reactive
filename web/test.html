@@ -430,6 +430,25 @@ async function main() {
       `lo=${sum(cLo).toFixed(2)} hi=${sum(cHi).toFixed(2)}`);
   }
 
+  // Reactive S3 — progressive disclosure (active set expands an editor panel)
+  {
+    const W = idoc.defaultView, T = W.__triggers;
+    const before = T.state.triggerSets.slice(), bank0 = T.state.bank, a0 = T.state.activeTriggerSet;
+    T.state.bank = { triggerCandidates: { low: [[0.5, 0.9]] }, duration: 4 };
+    T.state.triggerSets = [
+      { id: 'e1', name: 'E1', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18, dynamics: 'detected', pins: [], suppress: [] },
+      { id: 'e2', name: 'E2', band: 'mid', selectivity: 0.5, color: '#fc6', show: true, decay: 0.18, dynamics: 'detected', pins: [], suppress: [] },
+    ];
+    W.__setActiveTrigger('e1');
+    const box = idoc.getElementById('signalTriggers');
+    step('rtrig3: active set shows exactly one editor panel', box.querySelectorAll('.trg-editor').length === 1);
+    step('rtrig3: editor has a customization hint', !!box.querySelector('.trg-editor .trg-hint'));
+    W.__setActiveTrigger('e1'); // toggle off
+    step('rtrig3: no editor when nothing active', box.querySelectorAll('.trg-editor').length === 0);
+    T.state.triggerSets = before; T.state.bank = bank0; T.state.activeTriggerSet = a0;
+    if (W.__rebuildTriggers) W.__rebuildTriggers();
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;
