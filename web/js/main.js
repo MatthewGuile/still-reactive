@@ -2974,8 +2974,10 @@ function buildSignalPanel() {
 // triggers are derived live from the cached per-band candidates. (Editing +
 // modulation are later slices.)
 const TRIGGER_BANDS = [
-  { band: 'overall', label: 'Overall' }, { band: 'low', label: 'Low (kick)' },
-  { band: 'mid', label: 'Mid (snare)' }, { band: 'high', label: 'High (hats)' },
+  { band: 'overall', label: 'Overall', hint: 'hits anywhere in the mix' },
+  { band: 'low', label: 'Low', hint: 'low end / bass range' },
+  { band: 'mid', label: 'Mid', hint: 'midrange' },
+  { band: 'high', label: 'High', hint: 'high end / treble' },
 ];
 const TRIGGER_COLORS = ['#7fd6e6', '#ffb45a', '#9b8cff', '#6ce6a0'];
 
@@ -3071,25 +3073,21 @@ function buildTriggersSection() {
   const box = document.getElementById('signalTriggers');
   if (!box) return;
   box.textContent = '';
-  let pendBand = 'low', pendSel = 0.5;
+  let pendBand = 'low';
+  const pendSel = 0.5; // new sets start here; tune live in their own row
   const bandSeg = el('div', { class: 'seg trg-bands' });
-  for (const { band, label } of TRIGGER_BANDS) {
+  for (const { band, label, hint } of TRIGGER_BANDS) {
     const b = el('button', {
-      type: 'button', text: label,
+      type: 'button', text: label, title: hint,
       onclick: () => { pendBand = band; for (const c of bandSeg.children) c.classList.toggle('active', c === b); },
     });
     if (band === pendBand) b.classList.add('active');
     bandSeg.append(b);
   }
-  const sel = el('input', {
-    type: 'range', min: 0, max: 1, step: 0.05, value: pendSel,
-    oninput: (e) => { pendSel = parseFloat(e.target.value); },
-  });
   box.append(el('div', { class: 'trg-detect' },
-    el('span', { class: 'sig-ctl-lbl', text: 'Detect' }), bandSeg,
-    el('span', { class: 'sig-ctl-lbl', text: 'Selectivity' }), sel,
+    el('span', { class: 'sig-ctl-lbl', text: 'New set' }), bandSeg,
     el('button', {
-      class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create an auto-detected trigger set from this band',
+      class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create an auto-detected trigger set from this band (then tune it in its row)',
       onclick: () => {
         const set = newTriggerSet({
           name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
