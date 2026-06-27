@@ -253,6 +253,7 @@ function historySnapshot() {
     params: state.params,
     chain: state.chain,
     racks: state.racks,
+    triggerSets: state.triggerSets, // Slice 3: trigger edits are undoable
   });
 }
 
@@ -288,6 +289,16 @@ function restoreHistory(snap) {
   }
   if (Array.isArray(s.chain)) state.chain = s.chain.slice();
   if (Array.isArray(s.racks)) { state.racks = sanitizeRacks(s.racks); rebuildParamIndex(); }
+  if (Array.isArray(s.triggerSets)) {
+    // an edited set may be open — if it vanished from the restored state, close.
+    state.triggerSets = s.triggerSets;
+    if (state.editTriggerSet && !state.triggerSets.includes(state.editTriggerSet)) {
+      const open = state.triggerSets.find((x) => x.id === (state.editTriggerSet || {}).id);
+      if (open) { state.editTriggerSet = open; timeline.editTriggers(open); } else closeTriggerEdit();
+    }
+    refreshTriggerSources();
+    buildTriggersSection();
+  }
   closeLaneIfMissingFromSchema();
   panel.rebuild();
   if (state.bank) state.bank.setTempo(tempoMap.bpm, tempoMap.offset);
@@ -3854,5 +3865,6 @@ Object.assign(window.__racks, { applyRackToProject });
 Object.assign(window.__racks, { sanitizeRacks, updateMapping, resetMapping, removeMapping });
 // Task 5.1: session payload test hook.
 window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload());
+window.__commitHistory = commitHistory; // Slice 3 undo test
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();

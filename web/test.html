@@ -324,6 +324,32 @@ async function main() {
     tl.editTriggers(null); tl.setMode('move');
   }
 
+  // Slice 3 — re-detect, persistence round-trip, undo
+  {
+    const W = idoc.defaultView, T = W.__triggers;
+    const set = { id: 'rd', name: 'R', band: 'low', selectivity: 0.0, color: '#6cf', show: true, decay: 0.18, triggers: [{ t: 9, s: 0.1 }] };
+    T.reDetectSet(set, { triggerCandidates: { low: [[0.5, 1], [1.0, 0.9]] } });
+    step('triggers3: reDetect replaces triggers from candidates', set.triggers.length === 2 && set.triggers[0].t === 0.5, JSON.stringify(set.triggers));
+
+    const before = T.state.triggerSets.slice();
+    T.state.triggerSets = [{ id: 'pp', name: 'P', band: 'mid', selectivity: 0.5, color: '#6cf', show: true, decay: 0.2, triggers: [{ t: 1.25, s: 0.7 }] }];
+    const saved = (JSON.parse(W.__buildSessionPayload()).triggerSets || [])[0];
+    step('triggers3: session payload round-trips edited triggers',
+      !!saved && saved.triggers && saved.triggers[0].t === 1.25 && saved.triggers[0].s === 0.7,
+      JSON.stringify(saved && saved.triggers));
+
+    // undo reverts a trigger edit via the history snapshot
+    T.state.triggerSets = [{ id: 'uz', name: 'U', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18, triggers: [{ t: 1, s: 0.5 }] }];
+    W.__commitHistory();
+    T.state.triggerSets[0].triggers.push({ t: 2, s: 0.8 });
+    W.__commitHistory();
+    W.__undo();
+    step('triggers3: undo reverts a trigger edit',
+      !!T.state.triggerSets[0] && T.state.triggerSets[0].triggers.length === 1,
+      `n=${T.state.triggerSets[0] && T.state.triggerSets[0].triggers.length}`);
+    T.state.triggerSets = before; // restore for later tests
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;
