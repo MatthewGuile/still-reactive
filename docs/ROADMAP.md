@@ -169,18 +169,25 @@ round numbers below are historical labels, not priority.
    sets are now **deterministic modulation sources** — each fires a decaying
    pulse (`triggerEnvelope`, pure in t) routed via the mod matrix (`trg:<id>`
    sources in every param's mod menu), with a per-set decay control.
-   **⚠ NEEDS REFINEMENT (user, 2026-06-25):** Slices 1a–2 are *functionally*
-   complete but rough — treat the current trigger system as a working prototype,
-   not finished. A dedicated refinement pass is needed across: **detection
-   quality** (per-band selectivity/thresholds, what counts as a trigger, octave/
-   tempo-refit robustness on real tracks), the **Triggers UI/UX** (the Signal
-   section + detect flow are minimal; set management, naming, live selectivity
-   preview), **overlay legibility** on the timeline, and the **modulation feel**
-   (decay/attack shaping, per-trigger strength response). Gather specifics from
-   real use before the polish pass. Next: **Slice 3** (editing — drag/add/delete
-   individual triggers + named custom sets), then the refinement pass.
-   Restores trust in the timeline/audio analysis and is the foundation for the
-   trigger-modulation system.
+   **Slice 3 SHIPPED 2026-06-25** (branch `feat/trigger-editing`; spec
+   `docs/superpowers/specs/2026-06-25-trigger-editing-design.md`): the vision is
+   **complete (detect → edit → route)**. Sets now store an editable, sorted
+   `triggers:[{t,s}]` array (detect bakes it; legacy sets migrate on load).
+   An **Edit** button opens a set in the timeline lane editor (mutually exclusive
+   with a param lane): **Draw** adds, **Move** drags (x = time snapped, y =
+   strength), right-click/double-click deletes — modulation + overlay update
+   live, and edits are undoable via the history snapshot. Plus **Re-detect**
+   (confirm-gated), **+ Empty** (hand-placed) sets, and inline **rename**.
+   **⚠ NEEDS REFINEMENT (user, 2026-06-25):** the trigger system is *functionally*
+   complete but rough — treat it as a working prototype, not finished. A dedicated
+   refinement pass is needed across: **detection quality** (per-band selectivity/
+   thresholds, what counts as a trigger, octave/tempo-refit robustness on real
+   tracks), the **Triggers UI/UX** (the Signal section + detect/edit flow are
+   minimal; set management, live selectivity preview, edit-lane affordances),
+   **overlay legibility** on the timeline, and the **modulation feel** (decay/
+   attack shaping, per-trigger strength response). Gather specifics from real use
+   before the polish pass. Restores trust in the timeline/audio analysis and is
+   the foundation for the trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
    render-pipeline, or image-layer work. It is less urgent than the two known
    user-facing issues above, but it should gate the architectural rounds.
