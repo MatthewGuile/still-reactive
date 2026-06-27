@@ -12,6 +12,15 @@ const RULER_H = 26;   // css px (top band: loop brace · bottom: bars/markers)
 const LOOP_BAND = 9;  // css px — the brace strip at the top of the ruler
 const HIT_R = 9;      // css px point hit radius
 
+// Reactive S4: a marker's firing-flash amount (0..1) while playing — a quick
+// glow that peaks as the playhead crosses it and fades over ~0.3s. Pure chrome.
+export function markerFlashAmount(time, mt, playing) {
+  if (!playing) return 0;
+  const dt = time - mt;
+  if (dt < 0 || dt > 0.3) return 0;
+  return Math.exp(-dt / 0.11);
+}
+
 export class Timeline {
   constructor(canvas, {
     onSeek, onLaneEdit = () => {}, onLaneCommit = () => {}, getBaseValue = () => 0,
@@ -249,6 +258,7 @@ export class Timeline {
 
   setTime(t, playing = false) {
     this.time = t;
+    this.playing = playing; // Reactive S4: gates the marker firing-flash
     if (playing && this.pxPerSec > 0) {
       const x = this.xOf(t);
       if (x > this.canvas.width * 0.98 || x < 0) {
@@ -1081,10 +1091,19 @@ export class Timeline {
       for (const m of markers) {
         const x = this.xOf(m.t);
         if (x < 0 || x > w) continue;
-        const frac = hi ? (0.18 + 0.5 * m.s) : (0.12 + 0.28 * m.s);
-        ctx.globalAlpha = m.pinned ? baseA : baseA * 0.5;
-        const tkW = Math.max((m.pinned ? (hi ? 2 : 1.5) : 1) * dpr, 1);
-        ctx.fillRect(x, top, tkW, (h - top) * frac);
+        // Reactive S4: firing flash — quick grow + glow as the playhead crosses.
+        const flash = markerFlashAmount(this.time, m.t, this.playing);
+        let frac = hi ? (0.18 + 0.5 * m.s) : (0.12 + 0.28 * m.s);
+        ctx.globalAlpha = Math.max(m.pinned ? baseA : baseA * 0.5, flash);
+        let tkW = Math.max((m.pinned ? (hi ? 2 : 1.5) : 1) * dpr, 1);
+        if (flash > 0.02) {
+          frac *= 1 + 0.5 * flash;
+          tkW += flash * 2 * dpr;
+          ctx.shadowBlur = 9 * flash * dpr;
+          ctx.shadowColor = set.color;
+        }
+        ctx.fillRect(x, top, tkW, (h - top) * Math.min(frac, 1));
+        ctx.shadowBlur = 0;
       }
     }
     ctx.globalAlpha = 1;

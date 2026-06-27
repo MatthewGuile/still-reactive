@@ -407,6 +407,17 @@ async function main() {
       `lo=${sum(cLo).toFixed(2)} hi=${sum(cHi).toFixed(2)}`);
   }
 
+  // Reactive S4 — marker firing flash (pure)
+  {
+    const { markerFlashAmount } = await import('./js/timeline.js');
+    const peak = markerFlashAmount(2.0, 2.0, true);
+    const later = markerFlashAmount(2.15, 2.0, true);
+    step('rtrig4: flash peaks at the trigger + decays after',
+      Math.abs(peak - 1) < 1e-9 && later > 0 && later < peak, `peak=${peak.toFixed(2)} later=${later.toFixed(2)}`);
+    step('rtrig4: no flash when paused or out of window',
+      markerFlashAmount(2.0, 2.0, false) === 0 && markerFlashAmount(2.5, 2.0, true) === 0 && markerFlashAmount(1.9, 2.0, true) === 0);
+  }
+
   // Reactive S3 — progressive disclosure (active set expands an editor panel)
   {
     const W = idoc.defaultView, T = W.__triggers;
