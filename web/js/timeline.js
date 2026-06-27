@@ -32,7 +32,7 @@ export class Timeline {
     this.onTriggerEdit = onTriggerEdit;   // Slice 3: live edit (refresh, no checkpoint)
     this.onTriggerCommit = onTriggerCommit; // Slice 3: gesture end — undo checkpoint
     this.getBaseValue = getBaseValue;
-    this.editSet = null;              // Slice 3: trigger set open for editing
+    this.activeSet = null;            // Reactive S3: trigger set being edited on the body
 
     this.bank = null;
     this.tempo = null;       // TempoMap (set by main)
@@ -138,40 +138,49 @@ export class Timeline {
     return { top, bottom };
   }
 
-  // Slice 3: strength 0..1 <-> y within the lane band.
-  _editYofS(s) { const { top, bottom } = this._laneArea(); return bottom - Math.min(Math.max(s, 0), 1) * (bottom - top); }
-  _editSofY(y) { const { top, bottom } = this._laneArea(); return Math.min(Math.max((bottom - y) / (bottom - top), 0), 1); }
+  // Reactive S3: the timeline-body band that trigger markers occupy (below the
+  // ruler), used to map vertical drag → strength in `manual` dynamics mode.
+  _trgBand() {
+    return { top: (RULER_H + 2) * this.dpr, bottom: this.canvas.height - 6 * this.dpr };
+  }
+  _trgStrengthFromY(y) {
+    const { top, bottom } = this._trgBand();
+    return Math.min(Math.max((bottom - y) / (bottom - top), 0), 1);
+  }
 
-  // Hit-test the edited set's triggers (index, or -1).
-  _hitEditTrigger(x, y) {
-    if (!this.editSet) return -1;
-    const { top, bottom } = this._laneArea();
-    if (y < top || y > bottom) return -1;
+  // Resolved markers of the active set (from the overlay payload), for hit-test.
+  _activeMarkers() {
+    const entry = this.triggerSets.find((s) => s.active);
+    return (this.activeSet && entry) ? (entry.markers || []) : [];
+  }
+
+  // Hit-test the active set's markers → the marker object, or null.
+  _hitActiveMarker(x, y) {
+    if (!this.activeSet) return null;
+    const { top, bottom } = this._trgBand();
+    if (y < top || y > bottom) return null;
     const r = HIT_R * this.dpr;
-    let best = -1, bestD = r;
-    const trg = this.editSet.triggers;
-    for (let i = 0; i < trg.length; i++) {
-      const d = Math.abs(this.xOf(trg[i].t) - x);
-      if (d < bestD) { bestD = d; best = i; }
+    let best = null, bestD = r;
+    for (const m of this._activeMarkers()) {
+      const d = Math.abs(this.xOf(m.t) - x);
+      if (d < bestD) { bestD = d; best = m; }
     }
     return best;
   }
 
-  _drawEditTriggers(w, h, dpr) {
-    const { ctx } = this;
-    const { top, bottom } = this._laneArea();
-    ctx.fillStyle = 'rgba(255,255,255,0.03)';
-    ctx.fillRect(0, top, w, bottom - top);
-    for (const trg of this.editSet.triggers) {
-      const x = this.xOf(trg.t);
-      if (x < -4 || x > w + 4) continue;
-      const yTop = this._editYofS(trg.s);
-      ctx.fillStyle = this.editSet.color;
-      ctx.fillRect(x - dpr, yTop, 2 * dpr, bottom - yTop);
-      ctx.beginPath();
-      ctx.arc(x, yTop, 3.5 * dpr, 0, Math.PI * 2);
-      ctx.fill();
+  // Reactive S3: grab (or create) the pin object backing a gesture on the active
+  // set. Auto markers are promoted: suppress the original time + add a pin.
+  _grabPin(marker, t, s) {
+    const set = this.activeSet;
+    if (marker && marker.pinned) {
+      return set.pins.find((p) => Math.abs(p.t - marker.t) < 1e-3) || null;
     }
+    let pt = t, ps = s;
+    if (marker && !marker.pinned) { set.suppress.push(marker.t); pt = marker.t; ps = marker.s; } // promote in place
+    const pin = { t: +(+pt).toFixed(3), s: Math.min(Math.max(ps, 0), 1) };
+    set.pins.push(pin);
+    set.pins.sort((a, b) => a.t - b.t);
+    return pin;
   }
 
   _laneRange() {
@@ -217,14 +226,14 @@ export class Timeline {
     this.duration = bank ? bank.duration : 0;
     this.viewStart = 0;
     this.pxPerSec = 0;
-    this.editSet = null;
+    this.activeSet = null;
     this.draw();
   }
 
-  // Slice 3: open a trigger set for editing (mutually exclusive with a lane).
-  editTriggers(set) {
-    this.laneKey = null;
-    this.editSet = set || null;
+  // Reactive S3: the active trigger set whose markers are directly editable on
+  // the timeline body (coexists with automation lanes — different regions).
+  setActiveTriggerSet(set) {
+    this.activeSet = set || null;
     this.draw();
   }
 
@@ -252,13 +261,11 @@ export class Timeline {
 
   openLane(key) {
     this.laneKey = key;
-    this.editSet = null;
     this.draw();
   }
 
   closeLane() {
     this.laneKey = null;
-    this.editSet = null;
     this.drag = null;
     this.selection = null;
     this.draw();
@@ -496,21 +503,19 @@ export class Timeline {
       this._seekFrom(x);
       return;
     }
-    // Slice 3: editing a trigger set — Move drags a tick (x=time, y=strength),
-    // Draw adds one, right-click/double-click deletes.
-    if (this.editSet) {
-      const ti = this._hitEditTrigger(x, y);
-      if (ti >= 0) {
-        this.drag = { type: 'trg', index: ti };
-      } else if (this.mode === 'draw') {
-        const trg = { t: +this._snappedTime(x, e.altKey).toFixed(3), s: this._editSofY(y) };
-        this.editSet.triggers.push(trg);
-        this.editSet.triggers.sort((a, b) => a.t - b.t);
-        this.drag = { type: 'trg', index: this.editSet.triggers.indexOf(trg) };
-        this.onTriggerEdit(this.editSet);
-      } else {
-        this.drag = { type: 'scrub' };
-        this._seekFrom(x);
+    // Reactive S3: the active trigger set is directly editable on the body —
+    // grab a marker to move it, click empty to add one (x=time, y=strength in
+    // manual mode); right-click/double-click deletes (via _deleteAt). A param
+    // lane, if open, keeps the body for its breakpoints (edit triggers with no
+    // lane open).
+    if (this.activeSet && !this.laneKey) {
+      const marker = this._hitActiveMarker(x, y);
+      const t = this._snappedTime(x, e.altKey);
+      const s = (this.activeSet.dynamics === 'manual') ? this._trgStrengthFromY(y) : 0.8;
+      const pin = this._grabPin(marker, t, s);
+      if (pin) {
+        this.drag = { type: 'trg', pin };
+        this.onTriggerEdit(this.activeSet);
       }
       this.draw();
       return;
@@ -603,13 +608,12 @@ export class Timeline {
   _applyDrag(e) {
     const { x, y } = this._local(e);
     if (this.drag.type === 'trg') {
-      const set = this.editSet;
-      const trg = set && set.triggers[this.drag.index];
-      if (trg) {
-        trg.s = this._editSofY(y);
-        trg.t = +this._snappedTime(x, e.altKey).toFixed(3);
-        set.triggers.sort((a, b) => a.t - b.t);
-        this.drag.index = set.triggers.indexOf(trg);
+      const set = this.activeSet;
+      const pin = this.drag.pin;
+      if (set && pin) {
+        pin.t = +this._snappedTime(x, e.altKey).toFixed(3);
+        if (set.dynamics === 'manual') pin.s = this._trgStrengthFromY(y);
+        set.pins.sort((a, b) => a.t - b.t);
         this.onTriggerEdit(set);
         this.draw();
       }
@@ -757,11 +761,17 @@ export class Timeline {
 
   _deleteAt(e) {
     const { x, y } = this._local(e);
-    if (this.editSet) {
-      const ti = this._hitEditTrigger(x, y);
-      if (ti >= 0) {
-        this.editSet.triggers.splice(ti, 1);
-        this.onTriggerEdit(this.editSet);
+    if (this.activeSet && !this.laneKey) {
+      const marker = this._hitActiveMarker(x, y);
+      if (marker) {
+        const set = this.activeSet;
+        if (marker.pinned) {
+          const i = set.pins.findIndex((p) => Math.abs(p.t - marker.t) < 1e-3);
+          if (i >= 0) set.pins.splice(i, 1);
+        } else {
+          set.suppress.push(marker.t); // hide an auto marker
+        }
+        this.onTriggerEdit(set);
         this.onTriggerCommit();
         this.draw();
       }
@@ -838,7 +848,6 @@ export class Timeline {
     this._drawUserMarkers(w, h, dpr);
     this._drawSelection(w, h, dpr);   // shows with or without an open lane
     if (this.laneKey) this._drawLane(w, h, dpr);
-    if (this.editSet) this._drawEditTriggers(w, h, dpr);
 
     // playhead
     const px = this.xOf(this.time);

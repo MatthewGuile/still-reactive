@@ -279,58 +279,35 @@ async function main() {
         && W.__triggers.state.params['exposure~trg:D1@th'] === undefined);
   }
 
-  // Slice 3 — stored editable triggers + pure ops
-  {
-    const T = idoc.defaultView.__triggers;
-    const set = { id: 's3', name: 'E', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18, triggers: [] };
-    T.addTrigger(set, 2.0, 0.9); T.addTrigger(set, 1.0, 0.5); T.addTrigger(set, 3.0, 2.0);
-    step('triggers3: addTrigger inserts sorted + clamps strength',
-      set.triggers.map((x) => x.t).join(',') === '1,2,3' && set.triggers[2].s === 1,
-      JSON.stringify(set.triggers));
-    T.setTriggerStrength(set, 0, -1);
-    step('triggers3: setTriggerStrength clamps', set.triggers[0].s === 0);
-    T.moveTrigger(set, 0, 2.5);
-    step('triggers3: moveTrigger re-sorts', set.triggers.map((x) => x.t).join(',') === '2,2.5,3');
-    T.deleteTrigger(set, 1);
-    step('triggers3: deleteTrigger removes', set.triggers.length === 2);
-  }
-
-  // Slice 3 — timeline trigger edit mode + gestures (isolated: draw stubbed)
+  // Reactive S3 — direct manipulation of the active set's markers on the body
   {
     const W = idoc.defaultView; const tl = W.__timeline;
-    const set = { id: 'ed', name: 'Ed', band: 'low', selectivity: 0.5, color: '#f55', show: true, decay: 0.18, triggers: [] };
-    const realDraw = tl.draw.bind(tl), realBank = tl.bank, realE = tl.onTriggerEdit, realC = tl.onTriggerCommit;
-    let edited = 0, committed = 0;
-    tl.draw = () => {}; tl.bank = { duration: 4 };
+    const set = { id: 'ed', name: 'Ed', band: 'low', selectivity: null, color: '#f55', show: true, decay: 0.18, dynamics: 'manual', pins: [], suppress: [] };
+    const realDraw = tl.draw.bind(tl), realBank = tl.bank, realE = tl.onTriggerEdit, realC = tl.onTriggerCommit, realTS = tl.triggerSets, realLane = tl.laneKey, realAct = tl.activeSet;
+    let committed = 0;
+    const syncOverlay = () => { tl.triggerSets = [{ id: set.id, color: set.color, active: true, markers: set.pins.map((p) => ({ t: p.t, s: p.s, pinned: true })) }]; };
+    tl.draw = () => {}; tl.bank = { duration: 4 }; tl.laneKey = null;
     tl.duration = 4; tl.pxPerSec = 0; tl.viewStart = 0; tl.time = 0;
     tl.canvas.setPointerCapture = () => {}; tl.canvas.releasePointerCapture = () => {};
-    tl.onTriggerEdit = () => { edited++; }; tl.onTriggerCommit = () => { committed++; };
-    tl.editTriggers(set);
-    step('triggers3: editTriggers opens edit mode (no lane)', tl.editSet === set && tl.laneKey === null);
+    tl.onTriggerEdit = () => { syncOverlay(); }; tl.onTriggerCommit = () => { committed++; };
+    tl.setActiveTriggerSet(set); syncOverlay();
+    step('rtrig3: setActiveTriggerSet arms body editing', tl.activeSet === set);
     const r = tl.canvas.getBoundingClientRect();
-    // event at canvas-x px (snap-robust: target rendered positions, not fractions)
-    const at = (px) => ({ button: 0, altKey: false, shiftKey: false, pointerId: 1, preventDefault() {},
-      clientX: r.left + px / tl.dpr, clientY: r.top + tl.canvas.height * 0.6 / tl.dpr });
-    tl.setMode('draw');
-    tl._down(at(tl.canvas.width * 0.4)); tl._up(at(tl.canvas.width * 0.4));
-    step('triggers3: Draw-click adds a trigger', set.triggers.length === 1 && edited > 0, `n=${set.triggers.length}`);
-    tl.setMode('move');
-    const t0 = set.triggers[0].t;
-    tl._down(at(tl.xOf(t0))); tl._applyDrag(at(tl.canvas.width * 0.85)); tl._up(at(tl.canvas.width * 0.85));
-    step('triggers3: Move-drag repositions in time + commits', set.triggers.length === 1 && set.triggers[0].t > t0 && committed > 0, `t0=${t0} t=${set.triggers[0].t}`);
-    tl._deleteAt(at(tl.xOf(set.triggers[0].t)));
-    step('triggers3: delete removes the hit trigger', set.triggers.length === 0);
+    const at = (px, fy = 0.5) => ({ button: 0, altKey: true, shiftKey: false, pointerId: 1, preventDefault() {},
+      clientX: r.left + px / tl.dpr, clientY: r.top + tl.canvas.height * fy / tl.dpr });
+    // click empty space → add a pin, drag it to a new x, release
+    tl._down(at(tl.canvas.width * 0.3)); tl._applyDrag(at(tl.canvas.width * 0.6)); tl._up(at(tl.canvas.width * 0.6));
+    step('rtrig3: click-add then drag creates one pin + commits', set.pins.length === 1 && committed > 0, `pins=${set.pins.length}`);
+    // right-click the pin → removed
+    tl._deleteAt(at(tl.xOf(set.pins[0].t)));
+    step('rtrig3: right-click removes the pin', set.pins.length === 0);
     tl.draw = realDraw; tl.bank = realBank; tl.onTriggerEdit = realE; tl.onTriggerCommit = realC;
-    tl.editTriggers(null); tl.setMode('move');
+    tl.triggerSets = realTS; tl.laneKey = realLane; tl.setActiveTriggerSet(realAct);
   }
 
-  // Slice 3 — re-detect, persistence round-trip, undo
+  // Reactive S3 — persistence round-trip + undo (pins model)
   {
     const W = idoc.defaultView, T = W.__triggers;
-    const set = { id: 'rd', name: 'R', band: 'low', selectivity: 0.0, color: '#6cf', show: true, decay: 0.18, triggers: [{ t: 9, s: 0.1 }] };
-    T.reDetectSet(set, { triggerCandidates: { low: [[0.5, 1], [1.0, 0.9]] } });
-    step('triggers3: reDetect replaces triggers from candidates', set.triggers.length === 2 && set.triggers[0].t === 0.5, JSON.stringify(set.triggers));
-
     const before = T.state.triggerSets.slice();
     T.state.triggerSets = [{ id: 'pp', name: 'P', band: 'mid', selectivity: null, color: '#6cf', show: true, decay: 0.2, dynamics: 'detected', pins: [{ t: 1.25, s: 0.7 }], suppress: [] }];
     const saved = (JSON.parse(W.__buildSessionPayload()).triggerSets || [])[0];

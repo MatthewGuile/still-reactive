@@ -291,13 +291,12 @@ function restoreHistory(snap) {
   if (Array.isArray(s.chain)) state.chain = s.chain.slice();
   if (Array.isArray(s.racks)) { state.racks = sanitizeRacks(s.racks); rebuildParamIndex(); }
   if (Array.isArray(s.triggerSets)) {
-    // an edited set may be open — if it vanished from the restored state, close.
     state.triggerSets = s.triggerSets;
     state.triggerSets.forEach(normalizeTriggerSet);
-    if (state.editTriggerSet && !state.triggerSets.includes(state.editTriggerSet)) {
-      const open = state.triggerSets.find((x) => x.id === (state.editTriggerSet || {}).id);
-      if (open) { state.editTriggerSet = open; timeline.editTriggers(open); } else closeTriggerEdit();
-    }
+    // the active set may have vanished from the restored state — re-sync.
+    if (!state.triggerSets.some((x) => x.id === state.activeTriggerSet)) state.activeTriggerSet = null;
+    const activeSet = state.triggerSets.find((x) => x.id === state.activeTriggerSet) || null;
+    if (timeline.setActiveTriggerSet) timeline.setActiveTriggerSet(activeSet);
     refreshTriggerSources();
     buildTriggersSection();
   }
@@ -1370,7 +1369,6 @@ function openLane(key) {
     commitHistory();
   }
   state.lane = key;
-  if (state.editTriggerSet) { state.editTriggerSet = null; buildTriggersSection(); } // Slice 3: exclusive
   const s = SCHEMA_INDEX[key];
   laneInfo.textContent = `${s.groupLabel} · ${s.label}`;
   laneCluster.hidden = false;
@@ -1386,15 +1384,12 @@ function openLane(key) {
 
 function closeLane() {
   state.lane = null;
-  const wasEditingTriggers = !!state.editTriggerSet;
-  state.editTriggerSet = null;
   laneCluster.hidden = true;
   bottomBar.classList.remove('lane-open');
   applyStoredBarHeight();
   timeline.closeLane();
   panel.highlight(null);
   renderLaneChips();
-  if (wasEditingTriggers) buildTriggersSection();
 }
 
 // Resizable timeline: drag the strip above the bottom bar. The closed bar
@@ -1943,7 +1938,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'Escape' && state.lane) closeLane();
-  if (e.code === 'Escape' && state.editTriggerSet) closeTriggerEdit();
+  if (e.code === 'Escape' && state.activeTriggerSet) setActiveTrigger(state.activeTriggerSet); // deselect
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.code === 'KeyZ') {
@@ -3005,21 +3000,6 @@ function normalizeTriggerSet(set) {
   return set;
 }
 
-// Slice 3: pure edit ops on a set's stored trigger list (sorted by t, s 0..1).
-function addTrigger(set, t, s = 0.8) {
-  const trg = { t: +(+t).toFixed(3), s: Math.min(Math.max(s, 0), 1) };
-  set.triggers.push(trg);
-  set.triggers.sort((a, b) => a.t - b.t);
-  return set.triggers.indexOf(trg);
-}
-function moveTrigger(set, i, t) {
-  if (set.triggers[i]) { set.triggers[i].t = +(+t).toFixed(3); set.triggers.sort((a, b) => a.t - b.t); }
-}
-function setTriggerStrength(set, i, s) {
-  if (set.triggers[i]) set.triggers[i].s = Math.min(Math.max(s, 0), 1);
-}
-function deleteTrigger(set, i) { if (i >= 0) set.triggers.splice(i, 1); }
-function reDetectSet(set, bank) { set.triggers = deriveTriggerSet(set, bank); }
 // Reactive S1/S2: live-tune a set's Selectivity (numeric ⇒ auto layer ON), then
 // resolve markers from the auto+pinned model (edits preserved). Returns markers.
 function retuneSet(set, bank, sel) {
@@ -3198,30 +3178,6 @@ function newTriggerSet(props) {
   return set;
 }
 
-// Slice 3: open/close a trigger set in the timeline lane editor (reuses the
-// lane chrome; mutually exclusive with a param automation lane).
-function openTriggerEdit(set) {
-  state.lane = null;
-  state.editTriggerSet = set;
-  laneInfo.textContent = `Triggers · ${set.name}`;
-  laneCluster.hidden = false;
-  bottomBar.classList.add('lane-open');
-  applyStoredBarHeight();
-  timeline.editTriggers(set);
-  panel.highlight(null);
-  renderLaneChips();
-  buildTriggersSection();
-}
-
-function closeTriggerEdit() {
-  state.editTriggerSet = null;
-  laneCluster.hidden = true;
-  bottomBar.classList.remove('lane-open');
-  applyStoredBarHeight();
-  timeline.editTriggers(null);
-  buildTriggersSection();
-}
-
 function refreshTriggers() {
   buildTriggersSection();
   refreshTriggerSources();
@@ -3267,7 +3223,10 @@ function pushTriggerOverlays() {
 function setActiveTrigger(id) {
   state.activeTriggerSet = (state.activeTriggerSet === id) ? null : id;
   buildTriggersSection();
-  pushTriggerOverlays();
+  pushTriggerOverlays(); // refresh overlay (active markers) first…
+  // …then hand the timeline the active set object for direct editing.
+  const set = state.triggerSets.find((s) => s.id === state.activeTriggerSet) || null;
+  if (timeline.setActiveTriggerSet) timeline.setActiveTriggerSet(set);
 }
 
 function formatNum(v, s) {
@@ -3952,8 +3911,7 @@ window.__rebuild = {
 
 // Timeline waveform test hook (Spec 1).
 window.__timeline = timeline;
-window.__triggers = { state, deriveTriggerSet, sweepDeletedSource,
-  addTrigger, moveTrigger, setTriggerStrength, deleteTrigger, reDetectSet }; // Slice 1b/2/3 hook
+window.__triggers = { state, deriveTriggerSet, sweepDeletedSource, resetTriggerEdits }; // test hook
 window.__getModSources = () => modSourceList();
 window.__panelRebuild = () => panel.rebuild();
 
