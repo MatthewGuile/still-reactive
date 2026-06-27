@@ -371,6 +371,16 @@ async function main() {
     T.state.triggerSets = before; T.state.bank = bank0; T.state.activeTriggerSet = active0;
   }
 
+  // Reactive triggers Slice 1 — live Selectivity re-tune
+  {
+    const W = idoc.defaultView;
+    const bank = { triggerCandidates: { low: [[0.5, 1.0], [1.0, 0.5], [1.5, 0.2], [2.0, 0.12]] } };
+    const set = { id: 'sel', name: 'S', band: 'low', selectivity: 0.0, color: '#6cf', show: true, decay: 0.18, triggers: [] };
+    const lo = W.__retune(set, bank, 0.0).length;   // permissive → more
+    const hi = W.__retune(set, bank, 0.95).length;  // strict → fewer
+    step('rtrig1: live selectivity changes resolved count', lo > hi && set.triggers.length === hi, `lo=${lo} hi=${hi}`);
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

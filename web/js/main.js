@@ -2996,6 +2996,13 @@ function setTriggerStrength(set, i, s) {
 }
 function deleteTrigger(set, i) { if (i >= 0) set.triggers.splice(i, 1); }
 function reDetectSet(set, bank) { set.triggers = deriveTriggerSet(set, bank); }
+// Reactive S1: live-tune a set's Selectivity → re-derive its markers (pure-ish:
+// mutates set.triggers, returns the new array). Slice 2 will preserve edits.
+function retuneSet(set, bank, sel) {
+  set.selectivity = sel;
+  set.triggers = deriveTriggerSet(set, bank);
+  return set.triggers;
+}
 
 // Slice 2: routable modulation sources = the fixed audio sources + one per
 // trigger set (value `trg:<id>`, labeled by name).
@@ -3065,6 +3072,16 @@ function buildTriggersSection() {
         onchange: (e) => { set.name = e.target.value.trim() || set.name; e.target.value = set.name; autosaveAutomation(); refreshTriggerSources(); panel.rebuild(); },
       }),
       countEl,
+      el('input', {
+        type: 'range', min: 0, max: 1, step: 0.05, value: set.selectivity ?? 0.5,
+        class: 'trg-sel', title: 'selectivity — fewer ⇄ more markers (live)',
+        oninput: (e) => {
+          retuneSet(set, state.bank, parseFloat(e.target.value));
+          countEl.textContent = `${set.triggers.length}`;
+          refreshTriggerSources();
+        },
+        onchange: () => { autosaveAutomation(); commitHistory(); },
+      }),
       editBtn,
       el('button', {
         class: 'ctl-btn ctl-mini', text: '↻', title: 'Re-detect from band + selectivity (discards edits)',
@@ -3887,5 +3904,6 @@ window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload());
 window.__commitHistory = commitHistory; // Slice 3 undo test
 window.__setActiveTrigger = setActiveTrigger;          // Reactive S1
 window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
+window.__retune = retuneSet;                            // Reactive S1
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();
