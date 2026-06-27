@@ -418,6 +418,14 @@ async function main() {
       markerFlashAmount(2.0, 2.0, false) === 0 && markerFlashAmount(2.5, 2.0, true) === 0 && markerFlashAmount(1.9, 2.0, true) === 0);
   }
 
+  // Reactive S4 — routed-param meter glow (pure)
+  {
+    const { trgMeterGlow } = await import('./js/ui.js');
+    step('rtrig4: trg meter glows on fire, none when idle',
+      trgMeterGlow(0) === 'none' && trgMeterGlow(0.02) === 'none' && /rgba\(122,162,255/.test(trgMeterGlow(0.8)),
+      trgMeterGlow(0.8));
+  }
+
   // Reactive S3 — progressive disclosure (active set expands an editor panel)
   {
     const W = idoc.defaultView, T = W.__triggers;

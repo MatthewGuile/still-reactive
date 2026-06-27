@@ -30,6 +30,14 @@ export function formatTime(t) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// Reactive S4: glow box-shadow for a trigger-source meter — scales with the
+// envelope value `v` (0..1); 'none' when idle. Pure (testable).
+export function trgMeterGlow(v) {
+  if (!(v > 0.05)) return 'none';
+  const vv = Math.min(v, 1);
+  return `0 0 ${(3 + 7 * vv).toFixed(0)}px rgba(122,162,255,${(0.25 + 0.5 * vv).toFixed(2)})`;
+}
+
 // Builds the right-hand parameter panels. getParams/setParam connect to app
 // state. onAutomation(key) opens the lane editor for a param; laneState(key)
 // returns 'none' | 'on' | 'off' to drive the automation LEDs;
@@ -441,7 +449,11 @@ export class ParamPanel {
     ctrl.sync = sync;
     ctrl.updateMeter = (sources) => {
       if (ctrl.src && ctrl.src.startsWith('trg:')) {
-        meterFill.style.width = `${Math.min(this._trg[ctrl.src.slice(4)] || 0, 1) * 100}%`;
+        // Reactive S4: the meter pulses with the trigger envelope + a quiet glow
+        // on fire, so you see the routed param react.
+        const v = Math.min(this._trg[ctrl.src.slice(4)] || 0, 1);
+        meterFill.style.width = `${v * 100}%`;
+        meterFill.style.boxShadow = trgMeterGlow(v);
       } else {
         const idx = MOD_SOURCES.indexOf(ctrl.src);
         if (idx >= 0) meterFill.style.width = `${Math.min(sources[idx], 1) * 100}%`;
