@@ -183,10 +183,11 @@ round numbers below are historical labels, not priority.
    refinement pass is needed across: **detection quality** (per-band selectivity/
    thresholds, what counts as a trigger, octave/tempo-refit robustness on real
    tracks), the **Triggers UI/UX** (the Signal section + detect/edit flow are
-   minimal; set management, live selectivity preview, edit-lane affordances),
-   **overlay legibility** on the timeline, and the **modulation feel** (decay/
-   attack shaping, per-trigger strength response). Gather specifics from real use
-   before the polish pass. Restores trust in the timeline/audio analysis and is
+   minimal; set management, live selectivity preview, edit-lane affordances —
+   incl. **dragging trigger markers in Move mode** directly on the timeline
+   without first opening a set's Edit mode), **overlay legibility** on the
+   timeline, and the **modulation feel** (decay/attack shaping, per-trigger
+   strength response). Gather specifics from real use before the polish pass. Restores trust in the timeline/audio analysis and is
    the foundation for the trigger-modulation system.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
    render-pipeline, or image-layer work. It is less urgent than the two known
