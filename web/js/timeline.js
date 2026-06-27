@@ -17,6 +17,7 @@ export class Timeline {
     onSeek, onLaneEdit = () => {}, onLaneCommit = () => {}, getBaseValue = () => 0,
     onTempoChange = () => {}, onArrange = () => {},
     onMarkerMenu = () => {}, onRulerMenu = () => {}, onLaneMenu = () => {},
+    onTriggerEdit = () => {}, onTriggerCommit = () => {},
   }) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
@@ -28,7 +29,10 @@ export class Timeline {
     this.onMarkerMenu = onMarkerMenu; // (index, event)
     this.onRulerMenu = onRulerMenu;   // (beat, event)
     this.onLaneMenu = onLaneMenu;     // (event) — right-click empty lane area
+    this.onTriggerEdit = onTriggerEdit;   // Slice 3: live edit (refresh, no checkpoint)
+    this.onTriggerCommit = onTriggerCommit; // Slice 3: gesture end — undo checkpoint
     this.getBaseValue = getBaseValue;
+    this.editSet = null;              // Slice 3: trigger set open for editing
 
     this.bank = null;
     this.tempo = null;       // TempoMap (set by main)
@@ -134,6 +138,42 @@ export class Timeline {
     return { top, bottom };
   }
 
+  // Slice 3: strength 0..1 <-> y within the lane band.
+  _editYofS(s) { const { top, bottom } = this._laneArea(); return bottom - Math.min(Math.max(s, 0), 1) * (bottom - top); }
+  _editSofY(y) { const { top, bottom } = this._laneArea(); return Math.min(Math.max((bottom - y) / (bottom - top), 0), 1); }
+
+  // Hit-test the edited set's triggers (index, or -1).
+  _hitEditTrigger(x, y) {
+    if (!this.editSet) return -1;
+    const { top, bottom } = this._laneArea();
+    if (y < top || y > bottom) return -1;
+    const r = HIT_R * this.dpr;
+    let best = -1, bestD = r;
+    const trg = this.editSet.triggers;
+    for (let i = 0; i < trg.length; i++) {
+      const d = Math.abs(this.xOf(trg[i].t) - x);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  _drawEditTriggers(w, h, dpr) {
+    const { ctx } = this;
+    const { top, bottom } = this._laneArea();
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    ctx.fillRect(0, top, w, bottom - top);
+    for (const trg of this.editSet.triggers) {
+      const x = this.xOf(trg.t);
+      if (x < -4 || x > w + 4) continue;
+      const yTop = this._editYofS(trg.s);
+      ctx.fillStyle = this.editSet.color;
+      ctx.fillRect(x - dpr, yTop, 2 * dpr, bottom - yTop);
+      ctx.beginPath();
+      ctx.arc(x, yTop, 3.5 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   _laneRange() {
     const s = this.automation.schema[this.laneKey];
     if (s.type === 'enum') return { min: 0, max: s.options.length - 1, schema: s };
@@ -177,6 +217,14 @@ export class Timeline {
     this.duration = bank ? bank.duration : 0;
     this.viewStart = 0;
     this.pxPerSec = 0;
+    this.editSet = null;
+    this.draw();
+  }
+
+  // Slice 3: open a trigger set for editing (mutually exclusive with a lane).
+  editTriggers(set) {
+    this.laneKey = null;
+    this.editSet = set || null;
     this.draw();
   }
 
@@ -204,11 +252,13 @@ export class Timeline {
 
   openLane(key) {
     this.laneKey = key;
+    this.editSet = null;
     this.draw();
   }
 
   closeLane() {
     this.laneKey = null;
+    this.editSet = null;
     this.drag = null;
     this.selection = null;
     this.draw();
@@ -316,6 +366,17 @@ export class Timeline {
     if (!alt) b = snapBeats(b, this.snap, this.tempo.beatsPerBar);
     const maxB = this.tempo.beatsAt(this.duration);
     return Math.min(Math.max(b, 0), Math.max(maxB, 0));
+  }
+
+  // Slice 3: pointer x -> trigger time in seconds (grid-snapped unless Alt /
+  // no tempo). Works without a tempo map (raw, clamped).
+  _snappedTime(x, alt) {
+    let t = this.tOf(x);
+    if (this.tempo && !alt) {
+      const b = snapBeats(this.tempo.beatsAt(t), this.snap, this.tempo.beatsPerBar);
+      t = this.tempo.timeAt(b);
+    }
+    return Math.min(Math.max(t, 0), this.duration || 0);
   }
 
   _flagX() {
@@ -435,6 +496,25 @@ export class Timeline {
       this._seekFrom(x);
       return;
     }
+    // Slice 3: editing a trigger set — Move drags a tick (x=time, y=strength),
+    // Draw adds one, right-click/double-click deletes.
+    if (this.editSet) {
+      const ti = this._hitEditTrigger(x, y);
+      if (ti >= 0) {
+        this.drag = { type: 'trg', index: ti };
+      } else if (this.mode === 'draw') {
+        const trg = { t: +this._snappedTime(x, e.altKey).toFixed(3), s: this._editSofY(y) };
+        this.editSet.triggers.push(trg);
+        this.editSet.triggers.sort((a, b) => a.t - b.t);
+        this.drag = { type: 'trg', index: this.editSet.triggers.indexOf(trg) };
+        this.onTriggerEdit(this.editSet);
+      } else {
+        this.drag = { type: 'scrub' };
+        this._seekFrom(x);
+      }
+      this.draw();
+      return;
+    }
     if (!this.laneKey) {
       // No lane open: Move mode marquees a beats range (drag) / seeks (click)
       // so a range can be highlighted for the loop button; Draw mode scrubs.
@@ -522,6 +602,19 @@ export class Timeline {
   // by the edge-scroll loop with the held pointer after the view has panned).
   _applyDrag(e) {
     const { x, y } = this._local(e);
+    if (this.drag.type === 'trg') {
+      const set = this.editSet;
+      const trg = set && set.triggers[this.drag.index];
+      if (trg) {
+        trg.s = this._editSofY(y);
+        trg.t = +this._snappedTime(x, e.altKey).toFixed(3);
+        set.triggers.sort((a, b) => a.t - b.t);
+        this.drag.index = set.triggers.indexOf(trg);
+        this.onTriggerEdit(set);
+        this.draw();
+      }
+      return;
+    }
     if (this.drag.type === 'pan') {
       this.viewStart = this.drag.vs0 - (x - this.drag.x0) / this._pps();
       this._clampView();
@@ -656,12 +749,25 @@ export class Timeline {
       if (this.markers) this.markers.sort((a, z) => a.b - z.b);
       this.onArrange(true);
       this.draw();
+    } else if (dragType === 'trg') {
+      this.onTriggerCommit(); // checkpoint once at the end of the gesture
+      this.draw();
     }
   }
 
   _deleteAt(e) {
-    if (!this.laneKey) return;
     const { x, y } = this._local(e);
+    if (this.editSet) {
+      const ti = this._hitEditTrigger(x, y);
+      if (ti >= 0) {
+        this.editSet.triggers.splice(ti, 1);
+        this.onTriggerEdit(this.editSet);
+        this.onTriggerCommit();
+        this.draw();
+      }
+      return;
+    }
+    if (!this.laneKey) return;
     const hit = this._hitPoint(x, y);
     if (hit >= 0) {
       this.automation.deletePoint(this.laneKey, hit);
@@ -732,6 +838,7 @@ export class Timeline {
     this._drawUserMarkers(w, h, dpr);
     this._drawSelection(w, h, dpr);   // shows with or without an open lane
     if (this.laneKey) this._drawLane(w, h, dpr);
+    if (this.editSet) this._drawEditTriggers(w, h, dpr);
 
     // playhead
     const px = this.xOf(this.time);

@@ -295,6 +295,35 @@ async function main() {
     step('triggers3: deleteTrigger removes', set.triggers.length === 2);
   }
 
+  // Slice 3 — timeline trigger edit mode + gestures (isolated: draw stubbed)
+  {
+    const W = idoc.defaultView; const tl = W.__timeline;
+    const set = { id: 'ed', name: 'Ed', band: 'low', selectivity: 0.5, color: '#f55', show: true, decay: 0.18, triggers: [] };
+    const realDraw = tl.draw.bind(tl), realBank = tl.bank, realE = tl.onTriggerEdit, realC = tl.onTriggerCommit;
+    let edited = 0, committed = 0;
+    tl.draw = () => {}; tl.bank = { duration: 4 };
+    tl.duration = 4; tl.pxPerSec = 0; tl.viewStart = 0; tl.time = 0;
+    tl.canvas.setPointerCapture = () => {}; tl.canvas.releasePointerCapture = () => {};
+    tl.onTriggerEdit = () => { edited++; }; tl.onTriggerCommit = () => { committed++; };
+    tl.editTriggers(set);
+    step('triggers3: editTriggers opens edit mode (no lane)', tl.editSet === set && tl.laneKey === null);
+    const r = tl.canvas.getBoundingClientRect();
+    // event at canvas-x px (snap-robust: target rendered positions, not fractions)
+    const at = (px) => ({ button: 0, altKey: false, shiftKey: false, pointerId: 1, preventDefault() {},
+      clientX: r.left + px / tl.dpr, clientY: r.top + tl.canvas.height * 0.6 / tl.dpr });
+    tl.setMode('draw');
+    tl._down(at(tl.canvas.width * 0.4)); tl._up(at(tl.canvas.width * 0.4));
+    step('triggers3: Draw-click adds a trigger', set.triggers.length === 1 && edited > 0, `n=${set.triggers.length}`);
+    tl.setMode('move');
+    const t0 = set.triggers[0].t;
+    tl._down(at(tl.xOf(t0))); tl._applyDrag(at(tl.canvas.width * 0.85)); tl._up(at(tl.canvas.width * 0.85));
+    step('triggers3: Move-drag repositions in time + commits', set.triggers.length === 1 && set.triggers[0].t > t0 && committed > 0, `t0=${t0} t=${set.triggers[0].t}`);
+    tl._deleteAt(at(tl.xOf(set.triggers[0].t)));
+    step('triggers3: delete removes the hit trigger', set.triggers.length === 0);
+    tl.draw = realDraw; tl.bank = realBank; tl.onTriggerEdit = realE; tl.onTriggerCommit = realC;
+    tl.editTriggers(null); tl.setMode('move');
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

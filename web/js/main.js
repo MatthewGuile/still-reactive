@@ -660,6 +660,8 @@ const timeline = new Timeline(document.getElementById('timeline'), {
   onMarkerMenu: (index, e) => showMarkerMenu(index, e.clientX, e.clientY),
   onRulerMenu: (beat, e) => showRulerMenu(beat, e.clientX, e.clientY),
   onLaneMenu: (e) => showLaneMenu(e.clientX, e.clientY),
+  onTriggerEdit: () => { refreshTriggerSources(); autosaveAutomation(); }, // Slice 3: live
+  onTriggerCommit: () => commitHistory(),                                  // Slice 3: undo step
   getBaseValue: (key) => {
     const v = params()[key];
     const s = SCHEMA_INDEX[key];
@@ -1353,6 +1355,7 @@ function openLane(key) {
     commitHistory();
   }
   state.lane = key;
+  if (state.editTriggerSet) { state.editTriggerSet = null; buildTriggersSection(); } // Slice 3: exclusive
   const s = SCHEMA_INDEX[key];
   laneInfo.textContent = `${s.groupLabel} · ${s.label}`;
   laneCluster.hidden = false;
@@ -1368,12 +1371,15 @@ function openLane(key) {
 
 function closeLane() {
   state.lane = null;
+  const wasEditingTriggers = !!state.editTriggerSet;
+  state.editTriggerSet = null;
   laneCluster.hidden = true;
   bottomBar.classList.remove('lane-open');
   applyStoredBarHeight();
   timeline.closeLane();
   panel.highlight(null);
   renderLaneChips();
+  if (wasEditingTriggers) buildTriggersSection();
 }
 
 // Resizable timeline: drag the strip above the bottom bar. The closed bar
@@ -1922,6 +1928,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'Escape' && state.lane) closeLane();
+  if (e.code === 'Escape' && state.editTriggerSet) closeTriggerEdit();
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   const mod = e.ctrlKey || e.metaKey;
   if (mod && e.code === 'KeyZ') {
@@ -3011,23 +3018,44 @@ function buildTriggersSection() {
     el('button', {
       class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create a trigger set from this band',
       onclick: () => {
-        const n = state.triggerSets.length;
-        state.triggerSets.push({
-          id: `trg${Date.now().toString(36)}`,
+        newTriggerSet({
           name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
           band: pendBand, selectivity: pendSel,
-          color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], show: true, decay: 0.18,
           triggers: deriveTriggerSet({ band: pendBand, selectivity: pendSel }, state.bank),
         });
-        autosaveAutomation(); refreshTriggers();
+      },
+    }),
+    el('button', {
+      class: 'ctl-btn ctl-mini', text: '+ Empty', title: 'create an empty set and place triggers by hand',
+      onclick: () => {
+        const set = newTriggerSet({ name: 'Custom', band: pendBand, selectivity: pendSel, triggers: [] });
+        openTriggerEdit(set);
       },
     })));
   const list = el('div', { class: 'trg-list' });
   for (const set of state.triggerSets) {
-    const count = (set.triggers || []).length;
-    list.append(el('div', { class: 'trg-row' },
+    const editing = state.editTriggerSet === set;
+    const editBtn = el('button', {
+      class: `ctl-btn ctl-mini${editing ? ' active' : ''}`, text: editing ? 'Editing' : 'Edit',
+      title: 'edit triggers on the timeline',
+      onclick: () => { editing ? closeTriggerEdit() : openTriggerEdit(set); },
+    });
+    list.append(el('div', { class: `trg-row${editing ? ' editing' : ''}` },
       el('span', { class: 'trg-swatch', style: `background:${set.color}` }),
-      el('span', { class: 'trg-name', text: `${set.name} · ${count}` }),
+      el('input', {
+        type: 'text', class: 'trg-name-input', value: set.name, title: 'rename set',
+        onchange: (e) => { set.name = e.target.value.trim() || set.name; e.target.value = set.name; autosaveAutomation(); refreshTriggerSources(); panel.rebuild(); },
+      }),
+      el('span', { class: 'trg-count', text: `${(set.triggers || []).length}` }),
+      editBtn,
+      el('button', {
+        class: 'ctl-btn ctl-mini', text: '↻', title: 'Re-detect from band + selectivity (discards edits)',
+        onclick: () => {
+          if (!(set.triggers || []).length || confirm(`Re-detect "${set.name}" from ${set.band}? This discards manual edits.`)) {
+            reDetectSet(set, state.bank); autosaveAutomation(); commitHistory(); refreshTriggers();
+          }
+        },
+      }),
       el('input', {
         type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18,
         class: 'trg-decay', title: 'decay (s) — how long each pulse lasts',
@@ -3039,10 +3067,52 @@ function buildTriggersSection() {
       }),
       el('button', {
         class: 'ctl-btn ctl-mini', text: '×', title: 'delete set',
-        onclick: () => { sweepDeletedSource(set.id); state.triggerSets = state.triggerSets.filter((s) => s !== set); autosaveAutomation(); refreshTriggers(); },
+        onclick: () => {
+          if (state.editTriggerSet === set) closeTriggerEdit();
+          sweepDeletedSource(set.id); state.triggerSets = state.triggerSets.filter((s) => s !== set);
+          autosaveAutomation(); refreshTriggers();
+        },
       })));
   }
   box.append(list);
+}
+
+// Slice 3: create + register a trigger set (returns it).
+function newTriggerSet(props) {
+  const n = state.triggerSets.length;
+  const set = {
+    id: `trg${Date.now().toString(36)}`, name: 'Set',
+    band: 'low', selectivity: 0.5, decay: 0.18, show: true,
+    color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], triggers: [],
+    ...props,
+  };
+  state.triggerSets.push(set);
+  autosaveAutomation(); commitHistory(); refreshTriggers();
+  return set;
+}
+
+// Slice 3: open/close a trigger set in the timeline lane editor (reuses the
+// lane chrome; mutually exclusive with a param automation lane).
+function openTriggerEdit(set) {
+  state.lane = null;
+  state.editTriggerSet = set;
+  laneInfo.textContent = `Triggers · ${set.name}`;
+  laneCluster.hidden = false;
+  bottomBar.classList.add('lane-open');
+  applyStoredBarHeight();
+  timeline.editTriggers(set);
+  panel.highlight(null);
+  renderLaneChips();
+  buildTriggersSection();
+}
+
+function closeTriggerEdit() {
+  state.editTriggerSet = null;
+  laneCluster.hidden = true;
+  bottomBar.classList.remove('lane-open');
+  applyStoredBarHeight();
+  timeline.editTriggers(null);
+  buildTriggersSection();
 }
 
 function refreshTriggers() {
