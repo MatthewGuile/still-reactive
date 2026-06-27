@@ -178,17 +178,25 @@ round numbers below are historical labels, not priority.
    strength), right-click/double-click deletes — modulation + overlay update
    live, and edits are undoable via the history snapshot. Plus **Re-detect**
    (confirm-gated), **+ Empty** (hand-placed) sets, and inline **rename**.
-   **⚠ NEEDS REFINEMENT (user, 2026-06-25):** the trigger system is *functionally*
-   complete but rough — treat it as a working prototype, not finished. A dedicated
-   refinement pass is needed across: **detection quality** (per-band selectivity/
-   thresholds, what counts as a trigger, octave/tempo-refit robustness on real
-   tracks), the **Triggers UI/UX** (the Signal section + detect/edit flow are
-   minimal; set management, live selectivity preview, edit-lane affordances —
-   incl. **dragging trigger markers in Move mode** directly on the timeline
-   without first opening a set's Edit mode), **overlay legibility** on the
-   timeline, and the **modulation feel** (decay/attack shaping, per-trigger
-   strength response). Gather specifics from real use before the polish pass. Restores trust in the timeline/audio analysis and is
-   the foundation for the trigger-modulation system.
+   **REFINEMENT PASS SHIPPED 2026-06-27/28 — "Reactive triggers" redesign**
+   (spec `docs/superpowers/specs/2026-06-27-reactive-triggers-design.md`; 4 slices
+   merged to main `9dce7b3`/`f9c31cc`). The trigger system now feels live, directly
+   editable, and visibly firing. **Model:** every set is an **auto + pinned** list
+   — `auto` markers derive live from band+Selectivity, `pinned` markers are edits,
+   `suppress` hides deleted auto spots; `resolveTriggers` merges them (audio-locked,
+   pins win). **Tuning:** Selectivity/Decay update markers in real time.
+   **Dynamics** per set (Detected/Uniform/Manual) decides per-marker strength;
+   *amount* lives on the device (mod depth), not the timeline. **UI:** progressive
+   disclosure — collapsed rows + an active-set editor panel (Selectivity, Dynamics,
+   Decay + a pulse-shape preview, Reset) with a customization hint; bands are plain
+   Overall/Low/Mid/High. **Editing:** select a set, then on the timeline drag to
+   move / click to add / right-click to remove (no Edit mode); vertical = strength
+   in Manual. **Firing feedback:** markers flash as they fire + the routed param's
+   mod meter glows. Determinism preserved throughout (chrome only). Restored trust
+   in the timeline/audio analysis and is the foundation for the trigger-modulation
+   system. **Remaining trigger ideas (future, not blocking):** detection-quality
+   tuning on real tracks (octave/tempo-refit robustness), attack shaping, trigger
+   curve shapes, multi-select/copy-paste — revisit if real use asks.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
    render-pipeline, or image-layer work. It is less urgent than the two known
    user-facing issues above, but it should gate the architectural rounds.
