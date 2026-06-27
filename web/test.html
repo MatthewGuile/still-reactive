@@ -413,7 +413,21 @@ async function main() {
     step('rtrig2: overlay markers tag auto vs pinned',
       ov.markers.length === 3 && ov.markers.filter((m) => m.pinned).length === 1 && ov.markers.filter((m) => !m.pinned).length === 2,
       JSON.stringify(ov.markers.map((m) => [m.t, m.pinned])));
+    // dynamics uniform forces overlay strengths to 1
+    T.state.triggerSets = [{ id: 'dy', name: 'D', band: 'low', selectivity: 0.0, color: '#6cf', show: true, decay: 0.18, dynamics: 'uniform', pins: [], suppress: [] }];
+    const ovU = W.__triggerOverlayPayload()[0];
+    step('rtrig2: dynamics uniform → overlay strengths all 1', ovU.markers.length === 2 && ovU.markers.every((m) => m.s === 1));
     T.state.triggerSets = before; T.state.bank = bank0; T.state.activeTriggerSet = active0;
+  }
+
+  // Reactive S2 — decay shape preview helper
+  {
+    const W = idoc.defaultView;
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const cLo = W.__decayCurve(0.05), cHi = W.__decayCurve(0.8);
+    step('rtrig2: decay curve starts at peak + larger decay = longer tail',
+      cLo[0] === 1 && cHi[0] === 1 && sum(cHi) > sum(cLo) && cHi[cHi.length - 1] > cLo[cLo.length - 1],
+      `lo=${sum(cLo).toFixed(2)} hi=${sum(cHi).toFixed(2)}`);
   }
 
   // Timeline waveform — render integration via the __timeline hook

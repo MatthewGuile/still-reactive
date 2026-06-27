@@ -3027,6 +3027,37 @@ function retuneSet(set, bank, sel) {
 // Reactive S2: clear a set's manual edits back to pure auto.
 function resetTriggerEdits(set) { set.pins = []; set.suppress = []; }
 
+// Reactive S2: Decay legibility — the modulation pulse is an exponential fall
+// exp(-t/decay). `decayCurve` samples it (y 0..1, 1=instant peak) over a fixed
+// 1s window; `decayShapePoints` formats it as SVG polyline points for the inline
+// preview beside the slider. Both pure.
+function decayCurve(decay, n = 24, maxT = 1.0) {
+  const d = Math.max(decay, 0.01);
+  const ys = [];
+  for (let i = 0; i <= n; i++) ys.push(Math.exp(-((i / n) * maxT) / d));
+  return ys;
+}
+function decayShapePoints(decay, w = 30, h = 14) {
+  const ys = decayCurve(decay);
+  const n = ys.length - 1;
+  return ys.map((y, i) => `${((i / n) * w).toFixed(1)},${(h - y * (h - 1) - 0.5).toFixed(1)}`).join(' ');
+}
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function decayShapeSvg(set) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'trg-shape');
+  svg.setAttribute('viewBox', '0 0 30 14');
+  svg.setAttribute('width', '30'); svg.setAttribute('height', '14');
+  const line = document.createElementNS(SVG_NS, 'polyline');
+  line.setAttribute('points', decayShapePoints(set.decay ?? 0.18));
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', set.color || 'currentColor');
+  line.setAttribute('stroke-width', '1.5');
+  svg.appendChild(line);
+  svg._line = line;
+  return svg;
+}
+
 // Slice 2: routable modulation sources = the fixed audio sources + one per
 // trigger set (value `trg:<id>`, labeled by name).
 function modSourceList() {
@@ -3081,6 +3112,26 @@ function buildTriggersSection() {
     const count = state.bank ? resolveTriggers(set, state.bank).length : (set.pins || []).length;
     const countEl = el('span', { class: 'trg-count', text: `${count}` });
     const hasEdits = (set.pins || []).length || (set.suppress || []).length;
+    const dynSel = el('select', {
+      class: 'trg-dyn',
+      title: 'Dynamics — Detected: punch from the music · Uniform: every hit equal · Manual: hand-edit strengths',
+      onchange: (e) => { set.dynamics = e.target.value; autosaveAutomation(); commitHistory(); refreshTriggers(); },
+    },
+      el('option', { value: 'detected', text: 'Detected' }),
+      el('option', { value: 'uniform', text: 'Uniform' }),
+      el('option', { value: 'manual', text: 'Manual' }));
+    dynSel.value = set.dynamics || 'detected';
+    const shapeSvg = decayShapeSvg(set);
+    const decayWrap = el('span', { class: 'trg-decay-wrap', title: 'Decay — how long each hit lingers: snappy flick ↔ smooth swell' },
+      el('input', {
+        type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18, class: 'trg-decay',
+        oninput: (e) => {
+          set.decay = parseFloat(e.target.value);
+          shapeSvg._line.setAttribute('points', decayShapePoints(set.decay));
+          refreshTriggerSources();
+        },
+        onchange: () => { autosaveAutomation(); commitHistory(); },
+      }), shapeSvg);
     list.append(el('div', { class: `trg-row${isActive ? ' active' : ''}` },
       el('span', {
         class: 'trg-swatch', style: `background:${set.color}`,
@@ -3102,16 +3153,13 @@ function buildTriggersSection() {
         },
         onchange: () => { autosaveAutomation(); commitHistory(); },
       }),
+      dynSel,
       el('button', {
         class: 'ctl-btn ctl-mini', text: 'Reset', title: 'clear manual edits (pins + deletions) back to pure auto',
         disabled: !hasEdits,
         onclick: () => { resetTriggerEdits(set); autosaveAutomation(); commitHistory(); refreshTriggers(); },
       }),
-      el('input', {
-        type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18,
-        class: 'trg-decay', title: 'decay (s) — how long each pulse lasts',
-        oninput: (e) => { set.decay = parseFloat(e.target.value); autosaveAutomation(); refreshTriggerSources(); },
-      }),
+      decayWrap,
       el('button', {
         class: 'ctl-btn ctl-mini', text: set.show ? 'Shown' : 'Hidden', title: 'show on the timeline',
         onclick: () => { set.show = !set.show; autosaveAutomation(); refreshTriggers(); },
@@ -3922,5 +3970,6 @@ window.__setActiveTrigger = setActiveTrigger;          // Reactive S1
 window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
 window.__retune = retuneSet;                            // Reactive S1
 window.__normalizeTriggerSet = normalizeTriggerSet;     // Reactive S2
+window.__decayCurve = decayCurve;                       // Reactive S2
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();

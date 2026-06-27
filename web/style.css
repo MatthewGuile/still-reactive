@@ -1234,7 +1234,10 @@ details.group.master {
 .trg-name-input { flex: 1; min-width: 40px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 11px; padding: 1px 4px; }
 .trg-name-input:focus { border-color: var(--accent); outline: none; }
 .trg-count { flex: 0 0 auto; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
-.trg-decay { flex: 0 0 60px; }
+.trg-decay { flex: 1 1 44px; min-width: 36px; }
+.trg-dyn { flex: 0 0 auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 10px; padding: 1px 2px; }
+.trg-decay-wrap { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 80px; }
+.trg-shape { flex: 0 0 30px; opacity: 0.85; }
 .sig-map-row { display: flex; font-size: 11px; gap: 6px; margin: 2px 0; }
 .sig-map-src { color: var(--accent); flex: 0 0 64px; }
 .sig-map-tgt { color: var(--text-dim); }
