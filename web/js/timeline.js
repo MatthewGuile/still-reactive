@@ -1064,13 +1064,18 @@ export class Timeline {
       : this.triggerSets;
     for (const set of ordered) {
       const hi = !!set.active;
-      ctx.globalAlpha = hi ? 0.97 : (anyActive ? dim : normal);
+      const baseA = hi ? 0.97 : (anyActive ? dim : normal);
       ctx.fillStyle = set.color;
-      for (const trg of set.triggers) {
-        const x = this.xOf(trg.t);
+      // markers carry `pinned` (Reactive S2); legacy `triggers` render as solid.
+      // pinned = brighter + wider (your edits); auto = dimmer + thinner (derived).
+      const markers = set.markers || (set.triggers || []).map((t) => ({ ...t, pinned: true }));
+      for (const m of markers) {
+        const x = this.xOf(m.t);
         if (x < 0 || x > w) continue;
-        const frac = hi ? (0.18 + 0.5 * trg.s) : (0.12 + 0.28 * trg.s);
-        ctx.fillRect(x, top, Math.max((hi ? 2 : 1) * dpr, 1), (h - top) * frac);
+        const frac = hi ? (0.18 + 0.5 * m.s) : (0.12 + 0.28 * m.s);
+        ctx.globalAlpha = m.pinned ? baseA : baseA * 0.5;
+        const tkW = Math.max((m.pinned ? (hi ? 2 : 1.5) : 1) * dpr, 1);
+        ctx.fillRect(x, top, tkW, (h - top) * frac);
       }
     }
     ctx.globalAlpha = 1;

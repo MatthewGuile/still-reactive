@@ -293,6 +293,7 @@ function restoreHistory(snap) {
   if (Array.isArray(s.triggerSets)) {
     // an edited set may be open — if it vanished from the restored state, close.
     state.triggerSets = s.triggerSets;
+    state.triggerSets.forEach(normalizeTriggerSet);
     if (state.editTriggerSet && !state.triggerSets.includes(state.editTriggerSet)) {
       const open = state.triggerSets.find((x) => x.id === (state.editTriggerSet || {}).id);
       if (open) { state.editTriggerSet = open; timeline.editTriggers(open); } else closeTriggerEdit();
@@ -432,6 +433,8 @@ function applySessionData(saved) {
     state.followStructure = !!saved.followStructure;
     state.followLocked = !!saved.followLocked;
     state.triggerSets = Array.isArray(saved.triggerSets) ? saved.triggerSets : [];
+    state.triggerSets.forEach(normalizeTriggerSet); // Reactive S2: migrate to auto+pinned
+    state.activeTriggerSet = null;
     if (saved.reframe) {
       for (const k of Object.keys(state.reframe)) {
         const r = saved.reframe[k];
@@ -3015,13 +3018,14 @@ function setTriggerStrength(set, i, s) {
 }
 function deleteTrigger(set, i) { if (i >= 0) set.triggers.splice(i, 1); }
 function reDetectSet(set, bank) { set.triggers = deriveTriggerSet(set, bank); }
-// Reactive S1: live-tune a set's Selectivity → re-derive its markers (pure-ish:
-// mutates set.triggers, returns the new array). Slice 2 will preserve edits.
+// Reactive S1/S2: live-tune a set's Selectivity (numeric ⇒ auto layer ON), then
+// resolve markers from the auto+pinned model (edits preserved). Returns markers.
 function retuneSet(set, bank, sel) {
   set.selectivity = sel;
-  set.triggers = deriveTriggerSet(set, bank);
-  return set.triggers;
+  return resolveTriggers(normalizeTriggerSet(set), bank);
 }
+// Reactive S2: clear a set's manual edits back to pure auto.
+function resetTriggerEdits(set) { set.pins = []; set.suppress = []; }
 
 // Slice 2: routable modulation sources = the fixed audio sources + one per
 // trigger set (value `trg:<id>`, labeled by name).
@@ -3054,33 +3058,30 @@ function buildTriggersSection() {
     el('span', { class: 'sig-ctl-lbl', text: 'Detect' }), bandSeg,
     el('span', { class: 'sig-ctl-lbl', text: 'Selectivity' }), sel,
     el('button', {
-      class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create a trigger set from this band',
+      class: 'ctl-btn ctl-mini', text: '+ Set', title: 'create an auto-detected trigger set from this band',
       onclick: () => {
-        newTriggerSet({
+        const set = newTriggerSet({
           name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
-          band: pendBand, selectivity: pendSel,
-          triggers: deriveTriggerSet({ band: pendBand, selectivity: pendSel }, state.bank),
+          band: pendBand, selectivity: pendSel, // auto on
         });
+        setActiveTrigger(set.id);
       },
     }),
     el('button', {
-      class: 'ctl-btn ctl-mini', text: '+ Empty', title: 'create an empty set and place triggers by hand',
+      class: 'ctl-btn ctl-mini', text: '+ Empty', title: 'create an empty set (auto off) — tune Selectivity to fill it',
       onclick: () => {
-        const set = newTriggerSet({ name: 'Custom', band: pendBand, selectivity: pendSel, triggers: [] });
-        openTriggerEdit(set);
+        const set = newTriggerSet({ name: 'Custom', band: pendBand, selectivity: null }); // auto off
+        setActiveTrigger(set.id);
       },
     })));
   const list = el('div', { class: 'trg-list' });
   for (const set of state.triggerSets) {
-    const editing = state.editTriggerSet === set;
-    const editBtn = el('button', {
-      class: `ctl-btn ctl-mini${editing ? ' active' : ''}`, text: editing ? 'Editing' : 'Edit',
-      title: 'edit triggers on the timeline',
-      onclick: () => { editing ? closeTriggerEdit() : openTriggerEdit(set); },
-    });
+    normalizeTriggerSet(set);
     const isActive = state.activeTriggerSet === set.id;
-    const countEl = el('span', { class: 'trg-count', text: `${(set.triggers || []).length}` });
-    list.append(el('div', { class: `trg-row${editing ? ' editing' : ''}${isActive ? ' active' : ''}` },
+    const count = state.bank ? resolveTriggers(set, state.bank).length : (set.pins || []).length;
+    const countEl = el('span', { class: 'trg-count', text: `${count}` });
+    const hasEdits = (set.pins || []).length || (set.suppress || []).length;
+    list.append(el('div', { class: `trg-row${isActive ? ' active' : ''}` },
       el('span', {
         class: 'trg-swatch', style: `background:${set.color}`,
         title: 'select to tune / emphasise on the timeline',
@@ -3093,22 +3094,18 @@ function buildTriggersSection() {
       countEl,
       el('input', {
         type: 'range', min: 0, max: 1, step: 0.05, value: set.selectivity ?? 0.5,
-        class: 'trg-sel', title: 'selectivity — fewer ⇄ more markers (live)',
+        class: 'trg-sel', title: 'selectivity — fewer ⇄ more auto markers (live)',
         oninput: (e) => {
-          retuneSet(set, state.bank, parseFloat(e.target.value));
-          countEl.textContent = `${set.triggers.length}`;
+          const markers = retuneSet(set, state.bank, parseFloat(e.target.value));
+          countEl.textContent = `${markers.length}`;
           refreshTriggerSources();
         },
         onchange: () => { autosaveAutomation(); commitHistory(); },
       }),
-      editBtn,
       el('button', {
-        class: 'ctl-btn ctl-mini', text: '↻', title: 'Re-detect from band + selectivity (discards edits)',
-        onclick: () => {
-          if (!(set.triggers || []).length || confirm(`Re-detect "${set.name}" from ${set.band}? This discards manual edits.`)) {
-            reDetectSet(set, state.bank); autosaveAutomation(); commitHistory(); refreshTriggers();
-          }
-        },
+        class: 'ctl-btn ctl-mini', text: 'Reset', title: 'clear manual edits (pins + deletions) back to pure auto',
+        disabled: !hasEdits,
+        onclick: () => { resetTriggerEdits(set); autosaveAutomation(); commitHistory(); refreshTriggers(); },
       }),
       el('input', {
         type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18,
@@ -3131,15 +3128,16 @@ function buildTriggersSection() {
   box.append(list);
 }
 
-// Slice 3: create + register a trigger set (returns it).
+// Reactive S2: create + register a trigger set (auto+pinned shape).
 function newTriggerSet(props) {
   const n = state.triggerSets.length;
-  const set = {
+  const set = normalizeTriggerSet({
     id: `trg${Date.now().toString(36)}`, name: 'Set',
     band: 'low', selectivity: 0.5, decay: 0.18, show: true,
-    color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], triggers: [],
+    color: TRIGGER_COLORS[n % TRIGGER_COLORS.length],
+    pins: [], suppress: [], dynamics: 'detected',
     ...props,
-  };
+  });
   state.triggerSets.push(set);
   autosaveAutomation(); commitHistory(); refreshTriggers();
   return set;
@@ -3174,15 +3172,14 @@ function refreshTriggers() {
   refreshTriggerSources();
 }
 
-// Slice 2: recompute the bank's trigger modulation sources (all sets) + overlay.
+// Reactive S2: recompute the bank's trigger modulation sources from the
+// auto+pinned model (resolveTriggers) + the timeline overlay.
 function refreshTriggerSources() {
   if (state.bank) {
-    // Slice 3: sets store their triggers; bake any legacy set that lacks them.
-    for (const s of state.triggerSets) {
-      if (!Array.isArray(s.triggers)) s.triggers = deriveTriggerSet(s, state.bank);
-    }
+    for (const s of state.triggerSets) normalizeTriggerSet(s);
     state.bank.setTriggerSources(state.triggerSets.map((s) => ({
-      id: s.id, decay: s.decay, triggers: s.triggers || [],
+      id: s.id, decay: s.decay,
+      triggers: resolveTriggers(s, state.bank).map((m) => ({ t: m.t, s: m.s })),
     })));
   }
   pushTriggerOverlays();
@@ -3203,7 +3200,7 @@ function triggerOverlayPayload() {
   const on = state.triggerOverlays !== false;
   if (!(on && state.bank)) return [];
   return state.triggerSets.filter((s) => s.show).map((s) => ({
-    id: s.id, color: s.color, triggers: s.triggers || [],
+    id: s.id, color: s.color, markers: resolveTriggers(normalizeTriggerSet(s), state.bank),
     active: s.id === state.activeTriggerSet,
   }));
 }
