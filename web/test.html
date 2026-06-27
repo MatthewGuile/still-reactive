@@ -279,6 +279,22 @@ async function main() {
         && W.__triggers.state.params['exposure~trg:D1@th'] === undefined);
   }
 
+  // Slice 3 — stored editable triggers + pure ops
+  {
+    const T = idoc.defaultView.__triggers;
+    const set = { id: 's3', name: 'E', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18, triggers: [] };
+    T.addTrigger(set, 2.0, 0.9); T.addTrigger(set, 1.0, 0.5); T.addTrigger(set, 3.0, 2.0);
+    step('triggers3: addTrigger inserts sorted + clamps strength',
+      set.triggers.map((x) => x.t).join(',') === '1,2,3' && set.triggers[2].s === 1,
+      JSON.stringify(set.triggers));
+    T.setTriggerStrength(set, 0, -1);
+    step('triggers3: setTriggerStrength clamps', set.triggers[0].s === 0);
+    T.moveTrigger(set, 0, 2.5);
+    step('triggers3: moveTrigger re-sorts', set.triggers.map((x) => x.t).join(',') === '2,2.5,3');
+    T.deleteTrigger(set, 1);
+    step('triggers3: deleteTrigger removes', set.triggers.length === 2);
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

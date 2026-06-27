@@ -2962,6 +2962,22 @@ function deriveTriggerSet(set, bank) {
   return detectTriggers((bank.triggerCandidates || {})[set.band] || [], set.selectivity);
 }
 
+// Slice 3: pure edit ops on a set's stored trigger list (sorted by t, s 0..1).
+function addTrigger(set, t, s = 0.8) {
+  const trg = { t: +(+t).toFixed(3), s: Math.min(Math.max(s, 0), 1) };
+  set.triggers.push(trg);
+  set.triggers.sort((a, b) => a.t - b.t);
+  return set.triggers.indexOf(trg);
+}
+function moveTrigger(set, i, t) {
+  if (set.triggers[i]) { set.triggers[i].t = +(+t).toFixed(3); set.triggers.sort((a, b) => a.t - b.t); }
+}
+function setTriggerStrength(set, i, s) {
+  if (set.triggers[i]) set.triggers[i].s = Math.min(Math.max(s, 0), 1);
+}
+function deleteTrigger(set, i) { if (i >= 0) set.triggers.splice(i, 1); }
+function reDetectSet(set, bank) { set.triggers = deriveTriggerSet(set, bank); }
+
 // Slice 2: routable modulation sources = the fixed audio sources + one per
 // trigger set (value `trg:<id>`, labeled by name).
 function modSourceList() {
@@ -3001,13 +3017,14 @@ function buildTriggersSection() {
           name: TRIGGER_BANDS.find((b) => b.band === pendBand).label,
           band: pendBand, selectivity: pendSel,
           color: TRIGGER_COLORS[n % TRIGGER_COLORS.length], show: true, decay: 0.18,
+          triggers: deriveTriggerSet({ band: pendBand, selectivity: pendSel }, state.bank),
         });
         autosaveAutomation(); refreshTriggers();
       },
     })));
   const list = el('div', { class: 'trg-list' });
   for (const set of state.triggerSets) {
-    const count = state.bank ? deriveTriggerSet(set, state.bank).length : 0;
+    const count = (set.triggers || []).length;
     list.append(el('div', { class: 'trg-row' },
       el('span', { class: 'trg-swatch', style: `background:${set.color}` }),
       el('span', { class: 'trg-name', text: `${set.name} · ${count}` }),
@@ -3036,8 +3053,12 @@ function refreshTriggers() {
 // Slice 2: recompute the bank's trigger modulation sources (all sets) + overlay.
 function refreshTriggerSources() {
   if (state.bank) {
+    // Slice 3: sets store their triggers; bake any legacy set that lacks them.
+    for (const s of state.triggerSets) {
+      if (!Array.isArray(s.triggers)) s.triggers = deriveTriggerSet(s, state.bank);
+    }
     state.bank.setTriggerSources(state.triggerSets.map((s) => ({
-      id: s.id, decay: s.decay, triggers: deriveTriggerSet(s, state.bank),
+      id: s.id, decay: s.decay, triggers: s.triggers || [],
     })));
   }
   pushTriggerOverlays();
@@ -3056,7 +3077,7 @@ function pushTriggerOverlays() {
   const on = state.triggerOverlays !== false;
   const sets = (on && state.bank)
     ? state.triggerSets.filter((s) => s.show)
-        .map((s) => ({ color: s.color, triggers: deriveTriggerSet(s, state.bank) }))
+        .map((s) => ({ color: s.color, triggers: s.triggers || [] }))
     : [];
   if (timeline.setTriggerSets) timeline.setTriggerSets(sets);
 }
@@ -3743,7 +3764,8 @@ window.__rebuild = {
 
 // Timeline waveform test hook (Spec 1).
 window.__timeline = timeline;
-window.__triggers = { state, deriveTriggerSet, sweepDeletedSource }; // Slice 1b/2 test hook
+window.__triggers = { state, deriveTriggerSet, sweepDeletedSource,
+  addTrigger, moveTrigger, setTriggerStrength, deleteTrigger, reDetectSet }; // Slice 1b/2/3 hook
 window.__getModSources = () => modSourceList();
 window.__panelRebuild = () => panel.rebuild();
 
