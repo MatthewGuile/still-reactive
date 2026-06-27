@@ -350,6 +350,27 @@ async function main() {
     T.state.triggerSets = before; // restore for later tests
   }
 
+  // Reactive triggers Slice 1 — active-set selection + timeline emphasis
+  {
+    const W = idoc.defaultView, T = W.__triggers;
+    const before = T.state.triggerSets.slice(), bank0 = T.state.bank, active0 = T.state.activeTriggerSet;
+    T.state.bank = T.state.bank || { duration: 4 };
+    T.state.triggerSets = [
+      { id: 'a', name: 'A', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.18, triggers: [{ t: 1, s: 0.5 }] },
+      { id: 'b', name: 'B', band: 'mid', selectivity: 0.5, color: '#fc6', show: true, decay: 0.18, triggers: [{ t: 2, s: 0.6 }] },
+    ];
+    W.__setActiveTrigger('a');
+    step('rtrig1: selecting a set sets it active', T.state.activeTriggerSet === 'a');
+    const ov = W.__triggerOverlayPayload();
+    const aOn = ov.find((s) => s.id === 'a'), bOff = ov.find((s) => s.id === 'b');
+    step('rtrig1: overlay flags the active set',
+      !!aOn && aOn.active === true && !!bOff && bOff.active === false,
+      JSON.stringify(ov.map((s) => [s.id, s.active])));
+    W.__setActiveTrigger('a'); // toggles off
+    step('rtrig1: clicking the active set again clears it', T.state.activeTriggerSet === null);
+    T.state.triggerSets = before; T.state.bank = bank0; T.state.activeTriggerSet = active0;
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

@@ -1052,15 +1052,25 @@ export class Timeline {
       if (x < 0 || x > w) continue;
       ctx.fillRect(x, top, 2 * dpr, h - top);
     }
-    // Slice 1b: user trigger sets — color-coded ticks, height grows with strength.
-    const tA = this.laneKey ? 0.45 : 0.8;
-    ctx.globalAlpha = tA;
-    for (const set of this.triggerSets) {
+    // Slice 1b / Reactive S1: user trigger sets — color-coded ticks, height grows
+    // with strength. When a set is active (being tuned) it renders brighter +
+    // taller and the rest dim to context; with nothing active all render normally.
+    // Draw context first so the active set sits on top.
+    const anyActive = this.triggerSets.some((s) => s.active);
+    const normal = this.laneKey ? 0.45 : 0.8;
+    const dim = this.laneKey ? 0.22 : 0.32;
+    const ordered = anyActive
+      ? [...this.triggerSets].sort((a, b) => (a.active === b.active ? 0 : a.active ? 1 : -1))
+      : this.triggerSets;
+    for (const set of ordered) {
+      const hi = !!set.active;
+      ctx.globalAlpha = hi ? 0.97 : (anyActive ? dim : normal);
       ctx.fillStyle = set.color;
       for (const trg of set.triggers) {
         const x = this.xOf(trg.t);
         if (x < 0 || x > w) continue;
-        ctx.fillRect(x, top, Math.max(dpr, 1), (h - top) * (0.12 + 0.28 * trg.s));
+        const frac = hi ? (0.18 + 0.5 * trg.s) : (0.12 + 0.28 * trg.s);
+        ctx.fillRect(x, top, Math.max((hi ? 2 : 1) * dpr, 1), (h - top) * frac);
       }
     }
     ctx.globalAlpha = 1;

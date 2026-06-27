@@ -53,6 +53,7 @@ const state = {
   clipboard: null,        // R14-P3: copied automation clip (range or whole lane)
   triggerSets: [],        // Slice 1b: detection recipes {id,name,band,selectivity,color,show}
   triggerOverlays: true,  // Slice 1b: show trigger ticks on the timeline (UI pref)
+  activeTriggerSet: null, // Reactive-triggers Slice 1: id of the set being tuned/edited
 };
 
 const params = () => state.params;
@@ -3051,13 +3052,19 @@ function buildTriggersSection() {
       title: 'edit triggers on the timeline',
       onclick: () => { editing ? closeTriggerEdit() : openTriggerEdit(set); },
     });
-    list.append(el('div', { class: `trg-row${editing ? ' editing' : ''}` },
-      el('span', { class: 'trg-swatch', style: `background:${set.color}` }),
+    const isActive = state.activeTriggerSet === set.id;
+    const countEl = el('span', { class: 'trg-count', text: `${(set.triggers || []).length}` });
+    list.append(el('div', { class: `trg-row${editing ? ' editing' : ''}${isActive ? ' active' : ''}` },
+      el('span', {
+        class: 'trg-swatch', style: `background:${set.color}`,
+        title: 'select to tune / emphasise on the timeline',
+        onclick: () => setActiveTrigger(set.id),
+      }),
       el('input', {
         type: 'text', class: 'trg-name-input', value: set.name, title: 'rename set',
         onchange: (e) => { set.name = e.target.value.trim() || set.name; e.target.value = set.name; autosaveAutomation(); refreshTriggerSources(); panel.rebuild(); },
       }),
-      el('span', { class: 'trg-count', text: `${(set.triggers || []).length}` }),
+      countEl,
       editBtn,
       el('button', {
         class: 'ctl-btn ctl-mini', text: '↻', title: 'Re-detect from band + selectivity (discards edits)',
@@ -3154,13 +3161,25 @@ function sweepDeletedSource(id) {
 }
 
 // Slice 1b: push shown trigger sets (derived ticks) to the timeline overlay.
-function pushTriggerOverlays() {
+// Reactive S1: each carries an `active` flag so the timeline emphasises the set
+// being tuned and dims the rest.
+function triggerOverlayPayload() {
   const on = state.triggerOverlays !== false;
-  const sets = (on && state.bank)
-    ? state.triggerSets.filter((s) => s.show)
-        .map((s) => ({ color: s.color, triggers: s.triggers || [] }))
-    : [];
-  if (timeline.setTriggerSets) timeline.setTriggerSets(sets);
+  if (!(on && state.bank)) return [];
+  return state.triggerSets.filter((s) => s.show).map((s) => ({
+    id: s.id, color: s.color, triggers: s.triggers || [],
+    active: s.id === state.activeTriggerSet,
+  }));
+}
+function pushTriggerOverlays() {
+  if (timeline.setTriggerSets) timeline.setTriggerSets(triggerOverlayPayload());
+}
+
+// Reactive S1: select (or toggle off) the active set — the one tuned/emphasised.
+function setActiveTrigger(id) {
+  state.activeTriggerSet = (state.activeTriggerSet === id) ? null : id;
+  buildTriggersSection();
+  pushTriggerOverlays();
 }
 
 function formatNum(v, s) {
@@ -3866,5 +3885,7 @@ Object.assign(window.__racks, { sanitizeRacks, updateMapping, resetMapping, remo
 // Task 5.1: session payload test hook.
 window.__buildSessionPayload = () => JSON.stringify(buildSessionPayload());
 window.__commitHistory = commitHistory; // Slice 3 undo test
+window.__setActiveTrigger = setActiveTrigger;          // Reactive S1
+window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();
