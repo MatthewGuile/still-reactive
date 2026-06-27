@@ -381,6 +381,28 @@ async function main() {
     step('rtrig1: live selectivity changes resolved count', lo > hi && set.triggers.length === hi, `lo=${lo} hi=${hi}`);
   }
 
+  // Reactive S2 — resolveTriggers model
+  {
+    const W = idoc.defaultView;
+    const { resolveTriggers } = await import('./js/features.js');
+    const bank = { triggerCandidates: { low: [[0.5, 0.9], [1.0, 0.6], [1.5, 0.3]] } };
+    let r = resolveTriggers({ band: 'low', selectivity: 0.0, pins: [], suppress: [], dynamics: 'detected' }, bank);
+    step('rtrig2: auto markers resolve from selectivity', r.length === 3 && r.every((m) => !m.pinned), `n=${r.length}`);
+    r = resolveTriggers({ band: 'low', selectivity: null, pins: [{ t: 2, s: 0.7 }], suppress: [], dynamics: 'detected' }, bank);
+    step('rtrig2: null selectivity = auto off, pins only', r.length === 1 && r[0].pinned === true && r[0].t === 2);
+    r = resolveTriggers({ band: 'low', selectivity: 0.0, pins: [{ t: 1.0, s: 1 }], suppress: [0.5], dynamics: 'detected' }, bank);
+    step('rtrig2: suppress drops auto + pin wins on collision',
+      r.length === 2 && !r.some((m) => Math.abs(m.t - 0.5) < 0.02) && r.find((m) => m.t === 1.0).pinned === true,
+      JSON.stringify(r));
+    r = resolveTriggers({ band: 'low', selectivity: 0.0, pins: [], suppress: [], dynamics: 'uniform' }, bank);
+    step('rtrig2: uniform dynamics forces strength 1', r.length === 3 && r.every((m) => m.s === 1));
+    const set = { id: 'm', band: 'low', selectivity: 0.5, triggers: [{ t: 3, s: 0.8 }] };
+    W.__normalizeTriggerSet(set);
+    step('rtrig2: migrate triggers[] -> pins, auto off',
+      Array.isArray(set.pins) && set.pins.length === 1 && set.pins[0].t === 3 && set.selectivity === null && set.dynamics === 'detected' && set.triggers === undefined,
+      JSON.stringify(set));
+  }
+
   // Timeline waveform — render integration via the __timeline hook
   {
     const W = idoc.defaultView;

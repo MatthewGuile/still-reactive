@@ -103,6 +103,28 @@ export function detectTriggers(candidateList, selectivity) {
   return out;
 }
 
+// Reactive triggers: resolve a set's markers from the auto+pinned model.
+// auto = detected from band+selectivity (selectivity == null ⇒ auto OFF);
+// minus suppressions; plus pins (pins win on collision). dynamics 'uniform'
+// forces strength 1. Returns sorted [{t, s, pinned}] — pure, audio-locked.
+const TRG_EPS = 0.04;
+export function resolveTriggers(set, bank) {
+  if (!set) return [];
+  const cands = (bank && bank.triggerCandidates) ? (bank.triggerCandidates[set.band] || []) : [];
+  const auto = (set.selectivity == null) ? [] : detectTriggers(cands, set.selectivity);
+  const suppress = set.suppress || [];
+  const pins = set.pins || [];
+  const keptAuto = auto.filter((a) =>
+    !suppress.some((sp) => Math.abs(sp - a.t) < TRG_EPS)
+    && !pins.some((p) => Math.abs(p.t - a.t) < TRG_EPS));
+  const merged = [
+    ...keptAuto.map((a) => ({ t: a.t, s: a.s, pinned: false })),
+    ...pins.map((p) => ({ t: p.t, s: Math.min(Math.max(p.s, 0), 1), pinned: true })),
+  ].sort((a, b) => a.t - b.t);
+  if (set.dynamics === 'uniform') for (const m of merged) m.s = 1;
+  return merged;
+}
+
 // Percentile normalization matching the backend's _norm01 (5th/97th pct).
 function norm01(arr) {
   const sorted = Float32Array.from(arr).sort();

@@ -1,7 +1,7 @@
 // Still Reactive — app state and wiring.
 
 import { Renderer } from './renderer.js';
-import { FeatureBank, modValues, applyModulation, detectTriggers } from './features.js';
+import { FeatureBank, modValues, applyModulation, detectTriggers, resolveTriggers } from './features.js';
 import { Transport } from './audio.js';
 import { Timeline } from './timeline.js';
 import { WaveformPeaks } from './waveform.js';
@@ -2981,6 +2981,25 @@ function deriveTriggerSet(set, bank) {
   return detectTriggers((bank.triggerCandidates || {})[set.band] || [], set.selectivity);
 }
 
+// Reactive S2: bring a set to the auto+pinned shape. Legacy Slice-3 sets carry a
+// frozen `triggers[]` → migrate to `pins` (lossless) with auto OFF (selectivity
+// null) so old projects keep exactly their markers; re-tuning turns auto on.
+function normalizeTriggerSet(set) {
+  if (!set) return set;
+  if (!Array.isArray(set.pins)) {
+    if (Array.isArray(set.triggers)) {
+      set.pins = set.triggers.map((t) => ({ t: t.t, s: t.s }));
+      set.selectivity = null; // auto off — preserve the migrated look
+      delete set.triggers;
+    } else {
+      set.pins = [];
+    }
+  }
+  if (!Array.isArray(set.suppress)) set.suppress = [];
+  if (!set.dynamics) set.dynamics = 'detected';
+  return set;
+}
+
 // Slice 3: pure edit ops on a set's stored trigger list (sorted by t, s 0..1).
 function addTrigger(set, t, s = 0.8) {
   const trg = { t: +(+t).toFixed(3), s: Math.min(Math.max(s, 0), 1) };
@@ -3905,5 +3924,6 @@ window.__commitHistory = commitHistory; // Slice 3 undo test
 window.__setActiveTrigger = setActiveTrigger;          // Reactive S1
 window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
 window.__retune = retuneSet;                            // Reactive S1
+window.__normalizeTriggerSet = normalizeTriggerSet;     // Reactive S2
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();
