@@ -194,9 +194,17 @@ round numbers below are historical labels, not priority.
    in Manual. **Firing feedback:** markers flash as they fire + the routed param's
    mod meter glows. Determinism preserved throughout (chrome only). Restored trust
    in the timeline/audio analysis and is the foundation for the trigger-modulation
-   system. **Remaining trigger ideas (future, not blocking):** detection-quality
-   tuning on real tracks (octave/tempo-refit robustness), attack shaping, trigger
-   curve shapes, multi-select/copy-paste — revisit if real use asks.
+   system.
+   **Trigger pulse SHAPE SHIPPED 2026-06-28** (spec
+   `docs/superpowers/specs/2026-06-28-trigger-pulse-shape-design.md`): the pulse is
+   now a shapeable **AD envelope** (attack + decay, each with a curve) on the
+   trigger set (amount stays on the device). A Serum-style **drag editor** in the
+   active-set panel (exact-inverse curve dots + grab-offset), **preset shapes**
+   (Stab/Pluck/Swell/Pump/Gate), and **duplicate-set** for variations on a band.
+   Deterministic (`triggerEnvelope` pure in t).
+   **Remaining trigger ideas (future, not blocking):** detection-quality tuning on
+   real tracks (octave/tempo-refit robustness), anticipatory (pre-beat) attack,
+   freehand multi-point curves, multi-select/copy-paste — revisit if real use asks.
 5. **R11-P3 — golden-frame visual-regression test.** Add this before any shader,
    render-pipeline, or image-layer work. It is less urgent than the two known
    user-facing issues above, but it should gate the architectural rounds.
