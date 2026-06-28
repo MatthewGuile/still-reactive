@@ -23,16 +23,36 @@ export function modValues(feat) {
 // over triggers within ~5·decay before t, clamped 0..1. `sorted` is ascending by t.
 // Pure in (sorted, decay, t) → preview == export; binary-searched window so it is
 // correct at any t (seek/export), not only forward playback.
-export function triggerEnvelope(sorted, decay, t) {
-  if (!sorted || !sorted.length || decay <= 0) return 0;
-  const tau = decay, cutoff = t - 5 * tau;
+// Curve/tension for a 0..1 segment: c=0 linear, c>0 eases in (slow start),
+// c<0 eases out (fast start). Pure, monotonic, maps [0,1]→[0,1].
+export function shapeC(x, c) {
+  if (!c) return x;
+  const k = Math.exp(2.2 * c);
+  return (Math.pow(k, x) - 1) / (k - 1);
+}
+
+// AD (attack→decay) pulse envelope of a trigger set at time t: each trigger rises
+// 0→peak over `attack` (curve `attackCurve`), then falls peak→0 over `decay`
+// (curve `decayCurve`), scaled by strengthᵢ and summed over triggers within the
+// `attack+decay` window, clamped 0..1. `sorted` ascending by t; `shape` =
+// {attack, attackCurve, decay, decayCurve}. Pure in (sorted, shape, t).
+export function triggerEnvelope(sorted, shape, t) {
+  if (!sorted || !sorted.length) return 0;
+  const a = Math.max(shape.attack || 0, 0);
+  const d = shape.decay > 0 ? shape.decay : 0.0001;
+  const ac = shape.attackCurve || 0, dc = shape.decayCurve || 0;
+  const span = a + d, cutoff = t - span;
   let lo = 0, hi = sorted.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (sorted[m].t < cutoff) lo = m + 1; else hi = m; }
   let v = 0;
   for (let i = lo; i < sorted.length; i++) {
-    const dt = t - sorted[i].t;
-    if (dt < 0) break;
-    v += sorted[i].s * Math.exp(-dt / tau);
+    const tau = t - sorted[i].t;
+    if (tau < 0) break;       // trigger is in the future
+    if (tau >= span) continue; // pulse already ended
+    const e = (a > 0 && tau < a)
+      ? shapeC(tau / a, ac)                  // rise
+      : shapeC(1 - (tau - a) / d, dc);       // fall
+    v += sorted[i].s * e;
   }
   return v > 1 ? 1 : v;
 }
@@ -171,18 +191,19 @@ export class FeatureBank {
     this.beatOffset = offset || 0;
   }
 
-  // Slice 2: active trigger sets as modulation sources (derived, sorted triggers).
+  // Slice 2 / shape: active trigger sets as modulation sources (sorted triggers +
+  // AD pulse shape). Accepts `s.shape`, else builds one from a bare `s.decay`.
   setTriggerSources(sources) {
     this.triggerSources = (Array.isArray(sources) ? sources : []).map((s) => ({
       id: s.id,
-      decay: s.decay > 0 ? s.decay : 0.18,
+      shape: s.shape || { attack: 0, attackCurve: 0, decay: s.decay > 0 ? s.decay : 0.18, decayCurve: 0 },
       triggers: (s.triggers || []).slice().sort((a, b) => a.t - b.t),
     }));
   }
 
   _sampleTriggers(t) {
     const out = {};
-    for (const src of this.triggerSources) out[src.id] = triggerEnvelope(src.triggers, src.decay, t);
+    for (const src of this.triggerSources) out[src.id] = triggerEnvelope(src.triggers, src.shape, t);
     return out;
   }
 

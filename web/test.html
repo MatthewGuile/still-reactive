@@ -236,15 +236,13 @@ async function main() {
   {
     const { triggerEnvelope, FeatureBank: FB2, applyModulation: applyMod2 } = await import('./js/features.js');
     const sorted = [{ t: 1.0, s: 1.0 }, { t: 2.0, s: 0.5 }];
+    const sh = { attack: 0, attackCurve: 0, decay: 0.2, decayCurve: 0 };
     step('triggers2: envelope is 0 before the first trigger',
-      triggerEnvelope(sorted, 0.2, 0.5) === 0);
+      triggerEnvelope(sorted, sh, 0.5) === 0);
     step('triggers2: envelope = strength at the trigger',
-      Math.abs(triggerEnvelope(sorted, 0.2, 1.0) - 1.0) < 1e-6);
-    step('triggers2: envelope decays to ~s/e one decay later',
-      Math.abs(triggerEnvelope(sorted, 0.2, 1.2) - Math.exp(-1)) < 1e-3,
-      `${triggerEnvelope(sorted, 0.2, 1.2).toFixed(3)}`);
+      Math.abs(triggerEnvelope(sorted, sh, 1.0) - 1.0) < 1e-6);
     step('triggers2: deterministic at arbitrary t (order-independent)',
-      triggerEnvelope(sorted, 0.2, 2.05) === triggerEnvelope(sorted, 0.2, 2.05));
+      triggerEnvelope(sorted, sh, 2.05) === triggerEnvelope(sorted, sh, 2.05));
     const bank2 = new FB2({ frameRate: 50, frames: 10, duration: 2, tempo: 0, beatOffset: 0,
       rms: [0], low: [0], mid: [0], high: [0], onsetEnv: [0], onsets: [], sections: [0],
       triggers: { low: [] }, bands: null, bandEdges: null });
@@ -257,6 +255,25 @@ async function main() {
     const moved = applyMod2(p0, f);
     step('triggers2: applyModulation moves a target from a trg: source',
       moved[tgt] > SC[tgt].min, `${tgt}: ${SC[tgt].min} -> ${moved[tgt]}`);
+  }
+
+  // Trigger pulse shape — shapeC + AD envelope
+  {
+    const { shapeC, triggerEnvelope } = await import('./js/features.js');
+    step('tshape: shapeC linear at c=0, endpoints fixed, bends both ways',
+      shapeC(0.5, 0) === 0.5 && shapeC(0, 0.7) === 0 && Math.abs(shapeC(1, 0.7) - 1) < 1e-9
+        && shapeC(0.5, 0.7) < 0.5 && shapeC(0.5, -0.7) > 0.5);
+    const sorted = [{ t: 1.0, s: 1.0 }];
+    const lin = { attack: 0, attackCurve: 0, decay: 0.4, decayCurve: 0 };
+    step('tshape: 0 before, peak at trigger (attack 0)',
+      triggerEnvelope(sorted, lin, 0.5) === 0 && Math.abs(triggerEnvelope(sorted, lin, 1.0) - 1) < 1e-9);
+    step('tshape: linear decay halves mid-fall, hits 0 by decay end',
+      Math.abs(triggerEnvelope(sorted, lin, 1.2) - 0.5) < 1e-6 && triggerEnvelope(sorted, lin, 1.45) === 0,
+      `mid=${triggerEnvelope(sorted, lin, 1.2)}`);
+    const sw = { attack: 0.3, attackCurve: 0, decay: 0.4, decayCurve: 0 };
+    step('tshape: attack rises 0→peak at tᵢ+attack',
+      triggerEnvelope(sorted, sw, 1.0) === 0 && triggerEnvelope(sorted, sw, 1.15) > 0 && Math.abs(triggerEnvelope(sorted, sw, 1.3) - 1) < 1e-9,
+      `rise=${triggerEnvelope(sorted, sw, 1.15).toFixed(2)}`);
   }
 
   // Slice 2 — trigger sets appear as routable modulation sources
