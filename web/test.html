@@ -437,6 +437,22 @@ async function main() {
     W.__triggers.state.triggerSets = before;
   }
 
+  // Trigger shape S2 — presets + duplicate
+  {
+    const W = idoc.defaultView, T = W.__triggers;
+    const before = T.state.triggerSets.slice();
+    const set = { id: 'o', name: 'Orig', band: 'low', selectivity: 0.5, color: '#6cf', show: true, decay: 0.2, attack: 0, attackCurve: 0, decayCurve: 0, pins: [{ t: 1, s: 0.5 }], suppress: [], dynamics: 'detected' };
+    T.state.triggerSets = [set];
+    W.__applyShapePreset(set, 'swell');
+    step('tshape: preset swell gives a slow attack', set.attack > 0.1, `attack=${set.attack}`);
+    const n0 = T.state.triggerSets.length;
+    const dup = W.__duplicateTriggerSet(set);
+    step('tshape: duplicate clones shape + pins with a new id',
+      T.state.triggerSets.length === n0 + 1 && dup.id !== set.id && dup.attack === set.attack && dup.pins.length === 1 && dup.pins !== set.pins,
+      `id=${dup.id} pins=${dup.pins.length}`);
+    T.state.triggerSets = before; T.state.activeTriggerSet = null;
+  }
+
   // Reactive S4 — marker firing flash (pure)
   {
     const { markerFlashAmount } = await import('./js/timeline.js');

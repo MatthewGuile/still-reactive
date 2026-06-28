@@ -3017,6 +3017,36 @@ function resetTriggerEdits(set) { set.pins = []; set.suppress = []; }
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SHAPE_MAXT = 1.2; // seconds shown in the editor
 
+// Trigger pulse-shape presets (ShaperBox-style starting points).
+const TRIGGER_SHAPE_PRESETS = {
+  stab:  { attack: 0.0,   attackCurve: 0,    decay: 0.12, decayCurve: -0.7 },
+  pluck: { attack: 0.006, attackCurve: 0,    decay: 0.38, decayCurve: 0.7 },
+  swell: { attack: 0.42,  attackCurve: 0.3,  decay: 0.52, decayCurve: 0.25 },
+  pump:  { attack: 0.03,  attackCurve: -0.5, decay: 0.62, decayCurve: 0.6 },
+  gate:  { attack: 0.0,   attackCurve: 0,    decay: 0.28, decayCurve: -0.92 },
+};
+function applyShapePreset(set, name) {
+  const p = TRIGGER_SHAPE_PRESETS[name];
+  if (p) Object.assign(set, p);
+  return set;
+}
+// Duplicate a set (new id + name + colour; same band/selectivity/edits/shape).
+function duplicateTriggerSet(set) {
+  const n = state.triggerSets.length;
+  const dup = {
+    ...set,
+    id: `trg${Date.now().toString(36)}`,
+    name: `${set.name} copy`,
+    color: TRIGGER_COLORS[n % TRIGGER_COLORS.length],
+    pins: (set.pins || []).map((p) => ({ t: p.t, s: p.s })),
+    suppress: (set.suppress || []).slice(),
+  };
+  const i = state.triggerSets.indexOf(set);
+  state.triggerSets.splice(i < 0 ? state.triggerSets.length : i + 1, 0, dup);
+  autosaveAutomation(); commitHistory(); refreshTriggers();
+  return dup;
+}
+
 // Trigger pulse-shape editor (Serum-style): drag the peak (attack time), the end
 // (decay time), and a curve dot on each slope (bend, 1:1 via curveFromMid). Writes
 // set.attack/attackCurve/decay/decayCurve; live refresh per move, undo on release.
@@ -3202,10 +3232,22 @@ function buildTriggersSection() {
       el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Dynamics' }), dynSel),
       el('div', { class: 'trg-erow trg-erow-shape' }, el('span', { class: 'trg-elbl', text: 'Shape' }), shapeEd),
       el('div', { class: 'trg-erow' },
+        el('span', { class: 'trg-elbl', text: 'Preset' }),
+        el('div', { class: 'trg-presets' },
+          ...Object.keys(TRIGGER_SHAPE_PRESETS).map((name) => el('button', {
+            class: 'ctl-btn ctl-mini', text: name[0].toUpperCase() + name.slice(1),
+            title: `load the "${name}" pulse shape`,
+            onclick: () => { applyShapePreset(set, name); autosaveAutomation(); commitHistory(); refreshTriggers(); refreshTriggerSources(); },
+          })))),
+      el('div', { class: 'trg-erow trg-erow-actions' },
         el('button', {
           class: 'ctl-btn ctl-mini', text: 'Reset edits', disabled: !hasEdits,
           title: 'clear manual edits (pins + deletions) back to pure auto',
           onclick: () => { resetTriggerEdits(set); autosaveAutomation(); commitHistory(); refreshTriggers(); },
+        }),
+        el('button', {
+          class: 'ctl-btn ctl-mini', text: 'Duplicate', title: 'clone this set (same markers + shape) to vary it',
+          onclick: () => { const dup = duplicateTriggerSet(set); setActiveTrigger(dup.id); },
         })),
       el('div', { class: 'trg-hint', text: 'Drag on the timeline to add / move markers · right-click to remove' })));
   }
@@ -3987,5 +4029,7 @@ window.__retune = retuneSet;                            // Reactive S1
 window.__normalizeTriggerSet = normalizeTriggerSet;     // Reactive S2
 window.__rebuildTriggers = buildTriggersSection;        // Reactive S3
 window.__shapeEditor = buildShapeEditor;                // Trigger shape S2
+window.__applyShapePreset = applyShapePreset;           // Trigger shape S2
+window.__duplicateTriggerSet = duplicateTriggerSet;     // Trigger shape S2
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();
