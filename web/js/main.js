@@ -2997,6 +2997,11 @@ function normalizeTriggerSet(set) {
   }
   if (!Array.isArray(set.suppress)) set.suppress = [];
   if (!set.dynamics) set.dynamics = 'detected';
+  // Trigger pulse shape: AD envelope fields (decay stays as the fall time).
+  if (!(set.decay > 0)) set.decay = 0.18;
+  if (set.attack == null) set.attack = 0;
+  if (set.attackCurve == null) set.attackCurve = 0;
+  if (set.decayCurve == null) set.decayCurve = 0;
   return set;
 }
 
@@ -3189,7 +3194,8 @@ function refreshTriggerSources() {
   if (state.bank) {
     for (const s of state.triggerSets) normalizeTriggerSet(s);
     state.bank.setTriggerSources(state.triggerSets.map((s) => ({
-      id: s.id, decay: s.decay,
+      id: s.id,
+      shape: { attack: s.attack, attackCurve: s.attackCurve, decay: s.decay, decayCurve: s.decayCurve },
       triggers: resolveTriggers(s, state.bank).map((m) => ({ t: m.t, s: m.s })),
     })));
   }
