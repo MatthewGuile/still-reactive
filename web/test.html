@@ -420,14 +420,21 @@ async function main() {
     T.state.triggerSets = before; T.state.bank = bank0; T.state.activeTriggerSet = active0;
   }
 
-  // Reactive S2 — decay shape preview helper
+  // Trigger shape S2 — curveFromMid inverse + drag editor updates the set
   {
     const W = idoc.defaultView;
-    const sum = (a) => a.reduce((x, y) => x + y, 0);
-    const cLo = W.__decayCurve(0.05), cHi = W.__decayCurve(0.8);
-    step('rtrig2: decay curve starts at peak + larger decay = longer tail',
-      cLo[0] === 1 && cHi[0] === 1 && sum(cHi) > sum(cLo) && cHi[cHi.length - 1] > cLo[cLo.length - 1],
-      `lo=${sum(cLo).toFixed(2)} hi=${sum(cHi).toFixed(2)}`);
+    const { curveFromMid, shapeC } = await import('./js/features.js');
+    step('tshape: curveFromMid is the exact midpoint inverse of shapeC',
+      Math.abs(shapeC(0.5, curveFromMid(0.7)) - 0.7) < 1e-6 && Math.abs(curveFromMid(0.5)) < 1e-9);
+    const set = { id: 'se', name: 'S', band: 'low', selectivity: null, decay: 0.3, attack: 0, attackCurve: 0, decayCurve: 0, color: '#6cf', show: true, pins: [], suppress: [], dynamics: 'detected' };
+    const before = W.__triggers.state.triggerSets.slice(); W.__triggers.state.triggerSets = [set];
+    const ed = W.__shapeEditor(set);
+    // apply a peak drag at ~0.3s, x in svg coords (PAD_L=20, plotW=192, MAXT=1.2)
+    ed._apply('peak', 20 + (0.3 / 1.2) * 192, 12);
+    step('tshape: dragging the peak handle sets attack', Math.abs(set.attack - 0.3) < 0.02, `attack=${set.attack}`);
+    ed._apply('dc', 110, 20); // bend the decay curve up
+    step('tshape: dragging the decay curve dot bends decayCurve', set.decayCurve < 0, `dc=${set.decayCurve.toFixed(2)}`);
+    W.__triggers.state.triggerSets = before;
   }
 
   // Reactive S4 — marker firing flash (pure)

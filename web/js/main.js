@@ -1,7 +1,7 @@
 // Still Reactive — app state and wiring.
 
 import { Renderer } from './renderer.js';
-import { FeatureBank, modValues, applyModulation, detectTriggers, resolveTriggers } from './features.js';
+import { FeatureBank, modValues, applyModulation, detectTriggers, resolveTriggers, shapeC, curveFromMid } from './features.js';
 import { Transport } from './audio.js';
 import { Timeline } from './timeline.js';
 import { WaveformPeaks } from './waveform.js';
@@ -3014,35 +3014,85 @@ function retuneSet(set, bank, sel) {
 // Reactive S2: clear a set's manual edits back to pure auto.
 function resetTriggerEdits(set) { set.pins = []; set.suppress = []; }
 
-// Reactive S2: Decay legibility — the modulation pulse is an exponential fall
-// exp(-t/decay). `decayCurve` samples it (y 0..1, 1=instant peak) over a fixed
-// 1s window; `decayShapePoints` formats it as SVG polyline points for the inline
-// preview beside the slider. Both pure.
-function decayCurve(decay, n = 24, maxT = 1.0) {
-  const d = Math.max(decay, 0.01);
-  const ys = [];
-  for (let i = 0; i <= n; i++) ys.push(Math.exp(-((i / n) * maxT) / d));
-  return ys;
-}
-function decayShapePoints(decay, w = 30, h = 14) {
-  const ys = decayCurve(decay);
-  const n = ys.length - 1;
-  return ys.map((y, i) => `${((i / n) * w).toFixed(1)},${(h - y * (h - 1) - 0.5).toFixed(1)}`).join(' ');
-}
 const SVG_NS = 'http://www.w3.org/2000/svg';
-function decayShapeSvg(set) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'trg-shape');
-  svg.setAttribute('viewBox', '0 0 30 14');
-  svg.setAttribute('width', '30'); svg.setAttribute('height', '14');
-  const line = document.createElementNS(SVG_NS, 'polyline');
-  line.setAttribute('points', decayShapePoints(set.decay ?? 0.18));
-  line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', set.color || 'currentColor');
-  line.setAttribute('stroke-width', '1.5');
-  svg.appendChild(line);
-  svg._line = line;
-  return svg;
+const SHAPE_MAXT = 1.2; // seconds shown in the editor
+
+// Trigger pulse-shape editor (Serum-style): drag the peak (attack time), the end
+// (decay time), and a curve dot on each slope (bend, 1:1 via curveFromMid). Writes
+// set.attack/attackCurve/decay/decayCurve; live refresh per move, undo on release.
+function buildShapeEditor(set) {
+  const VBW = 220, VBH = 96, PAD_L = 20, PAD_R = 8, PAD_T = 12, BOT = 80;
+  const plotW = VBW - PAD_L - PAD_R, plotH = BOT - PAD_T;
+  const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+  const xOf = (t) => PAD_L + (t / SHAPE_MAXT) * plotW;
+  const tOf = (x) => clamp((x - PAD_L) / plotW * SHAPE_MAXT, 0, SHAPE_MAXT);
+  const yOf = (v) => PAD_T + (1 - v) * plotH;
+  const vOfY = (y) => clamp(1 - (y - PAD_T) / plotH, 0, 1);
+  const envVal = (t) => {
+    const a = set.attack || 0, d = set.decay > 0 ? set.decay : 0.0001;
+    if (t <= 0) return 0;
+    if (a > 0 && t < a) return shapeC(t / a, set.attackCurve || 0);
+    if (t < a + d) return shapeC(1 - (t - a) / d, set.decayCurve || 0);
+    return 0;
+  };
+  const mk = (tag, attrs) => { const n = document.createElementNS(SVG_NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; };
+  const svg = mk('svg', { class: 'trg-shape-ed', viewBox: `0 0 ${VBW} ${VBH}` });
+  svg.append(
+    mk('line', { class: 'se-grid', x1: PAD_L, y1: BOT, x2: VBW - PAD_R, y2: BOT }),
+    mk('path', { class: 'se-fill' }),
+    mk('polyline', { class: 'se-line', stroke: set.color || '#7aa2ff' }),
+  );
+  const hPeak = mk('circle', { class: 'se-pos', 'data-h': 'peak', r: 5 });
+  const hEnd = mk('circle', { class: 'se-pos', 'data-h': 'end', r: 5 });
+  const hAc = mk('circle', { class: 'se-curve', 'data-h': 'ac', r: 4 });
+  const hDc = mk('circle', { class: 'se-curve', 'data-h': 'dc', r: 4 });
+  svg.append(hAc, hDc, hPeak, hEnd);
+  const fill = svg.querySelector('.se-fill'), line = svg.querySelector('.se-line');
+  const readout = el('span', { class: 'trg-shape-read' });
+
+  function render() {
+    set.attack = clamp(set.attack || 0, 0, 0.8);
+    set.decay = clamp(set.decay > 0 ? set.decay : 0.18, 0.02, 1.05);
+    if (set.attack + set.decay > SHAPE_MAXT) set.decay = SHAPE_MAXT - set.attack;
+    let pts = '';
+    for (let i = 0; i <= 80; i++) { const t = (i / 80) * SHAPE_MAXT; pts += `${xOf(t).toFixed(1)},${yOf(envVal(t)).toFixed(1)} `; }
+    pts = pts.trim();
+    line.setAttribute('points', pts);
+    fill.setAttribute('d', `M${PAD_L},${BOT} L${pts.split(' ').join(' L')} L${xOf(set.attack + set.decay).toFixed(1)},${BOT} Z`);
+    hPeak.setAttribute('cx', xOf(set.attack)); hPeak.setAttribute('cy', yOf(1));
+    hEnd.setAttribute('cx', xOf(set.attack + set.decay)); hEnd.setAttribute('cy', yOf(0));
+    const acT = set.attack * 0.5; hAc.setAttribute('cx', xOf(acT)); hAc.setAttribute('cy', yOf(envVal(acT)));
+    const dcT = set.attack + set.decay * 0.5; hDc.setAttribute('cx', xOf(dcT)); hDc.setAttribute('cy', yOf(envVal(dcT)));
+    readout.textContent = `A ${(set.attack * 1000).toFixed(0)}ms · D ${(set.decay * 1000).toFixed(0)}ms`;
+  }
+  // apply a drag (svg coords) for a handle — exposed for tests.
+  function apply(handle, sx, sy) {
+    if (handle === 'peak') set.attack = tOf(sx);
+    else if (handle === 'end') set.decay = clamp(tOf(sx) - set.attack, 0.02, 1.05);
+    else if (handle === 'ac') set.attackCurve = curveFromMid(vOfY(sy));
+    else if (handle === 'dc') set.decayCurve = curveFromMid(vOfY(sy));
+    render();
+    refreshTriggerSources(); autosaveAutomation();
+  }
+  function drag(handleEl, name) {
+    handleEl.addEventListener('pointerdown', (e) => {
+      try { handleEl.setPointerCapture(e.pointerId); } catch (err) { /* headless */ }
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const toSvg = (ev) => ({ x: (ev.clientX - rect.left) / rect.width * VBW, y: (ev.clientY - rect.top) / rect.height * VBH });
+      const p0 = toSvg(e);
+      const offX = parseFloat(handleEl.getAttribute('cx')) - p0.x;
+      const offY = parseFloat(handleEl.getAttribute('cy')) - p0.y;
+      const move = (ev) => { const p = toSvg(ev); apply(name, p.x + offX, p.y + offY); };
+      const up = () => { handleEl.removeEventListener('pointermove', move); handleEl.removeEventListener('pointerup', up); commitHistory(); };
+      handleEl.addEventListener('pointermove', move); handleEl.addEventListener('pointerup', up);
+    });
+  }
+  drag(hPeak, 'peak'); drag(hEnd, 'end'); drag(hAc, 'ac'); drag(hDc, 'dc');
+  render();
+  const wrap = el('div', { class: 'trg-shape-ed-wrap' }, svg, readout);
+  wrap._apply = apply; wrap._svg = svg; // test hooks
+  return wrap;
 }
 
 // Slice 2: routable modulation sources = the fixed audio sources + one per
@@ -3146,17 +3196,11 @@ function buildTriggersSection() {
       el('option', { value: 'uniform', text: 'Uniform' }),
       el('option', { value: 'manual', text: 'Manual' }));
     dynSel.value = set.dynamics || 'detected';
-    const shapeSvg = decayShapeSvg(set);
-    const decaySlider = el('input', {
-      type: 'range', min: 0.02, max: 1, step: 0.01, value: set.decay ?? 0.18, class: 'trg-decay',
-      title: 'how long each hit lingers: snappy flick ↔ smooth swell',
-      oninput: (e) => { set.decay = parseFloat(e.target.value); shapeSvg._line.setAttribute('points', decayShapePoints(set.decay)); refreshTriggerSources(); },
-      onchange: () => { autosaveAutomation(); commitHistory(); },
-    });
+    const shapeEd = buildShapeEditor(set);
     list.append(el('div', { class: 'trg-editor' },
       el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Selectivity' }), selSlider, selVal),
       el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Dynamics' }), dynSel),
-      el('label', { class: 'trg-erow' }, el('span', { class: 'trg-elbl', text: 'Decay' }), decaySlider, shapeSvg),
+      el('div', { class: 'trg-erow trg-erow-shape' }, el('span', { class: 'trg-elbl', text: 'Shape' }), shapeEd),
       el('div', { class: 'trg-erow' },
         el('button', {
           class: 'ctl-btn ctl-mini', text: 'Reset edits', disabled: !hasEdits,
@@ -3941,7 +3985,7 @@ window.__setActiveTrigger = setActiveTrigger;          // Reactive S1
 window.__triggerOverlayPayload = triggerOverlayPayload; // Reactive S1
 window.__retune = retuneSet;                            // Reactive S1
 window.__normalizeTriggerSet = normalizeTriggerSet;     // Reactive S2
-window.__decayCurve = decayCurve;                       // Reactive S2
 window.__rebuildTriggers = buildTriggersSection;        // Reactive S3
+window.__shapeEditor = buildShapeEditor;                // Trigger shape S2
 // Task 5.2: undo test hook.
 window.__undo = () => undoAutomation();

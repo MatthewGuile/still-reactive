@@ -31,6 +31,13 @@ export function shapeC(x, c) {
   return (Math.pow(k, x) - 1) / (k - 1);
 }
 
+// Exact inverse of shapeC at x=0.5: the curve `c` that lands the segment's
+// midpoint at value `m`. Lets a curve-editor handle track the cursor 1:1.
+export function curveFromMid(m) {
+  const mm = Math.min(Math.max(m, 0.02), 0.98);
+  return Math.min(Math.max((1 / 1.1) * Math.log((1 - mm) / mm), -1), 1);
+}
+
 // AD (attack→decay) pulse envelope of a trigger set at time t: each trigger rises
 // 0→peak over `attack` (curve `attackCurve`), then falls peak→0 over `decay`
 // (curve `decayCurve`), scaled by strengthᵢ and summed over triggers within the
